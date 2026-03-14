@@ -1,7 +1,7 @@
 package org.pms.patientservice.service;
 
 import org.pms.patientservice.dto.PatientResponseDto;
-import org.pms.patientservice.mapper.PatientResponseMapper;
+import org.pms.patientservice.mapper.PatientMapper;
 import org.pms.patientservice.model.Patient;
 import org.pms.patientservice.repository.PatientRepository;
 import org.springframework.stereotype.Service;
@@ -12,11 +12,10 @@ import java.util.List;
 public class PatientService {
 
     private final PatientRepository patientRepository;
-
-    private final PatientResponseMapper patientMapper;
+    private final PatientMapper patientMapper;
 
     public PatientService(PatientRepository patientRepository,
-                          PatientResponseMapper patientMapper) {
+                          PatientMapper patientMapper) {
         this.patientRepository = patientRepository;
         this.patientMapper = patientMapper;
     }
