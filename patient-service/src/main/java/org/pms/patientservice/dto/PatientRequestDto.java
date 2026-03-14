@@ -1,13 +1,10 @@
 package org.pms.patientservice.dto;
 
-import com.fasterxml.jackson.annotation.JsonFormat;
 import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Size;
 import lombok.Data;
-
-import java.time.LocalDate;
 
 @Data
 public class PatientRequestDto {
@@ -22,11 +19,9 @@ public class PatientRequestDto {
     @NotBlank(message = "Address is required!")
     private String address;
 
-    @JsonFormat(pattern = "yyyy-MM-DD")
     @NotNull(message = "Date of Birth is required!")
-    private LocalDate dateOfBirth;
+    private String dateOfBirth;
 
-    @JsonFormat(pattern = "yyyy-MM-DD")
     @NotNull(message = "Register date is required!")
-    private LocalDate registeredDate;
+    private String registeredDate;
 }

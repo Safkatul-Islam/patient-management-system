@@ -5,6 +5,8 @@ import org.pms.patientservice.dto.PatientResponseDto;
 import org.pms.patientservice.model.Patient;
 import org.springframework.stereotype.Component;
 
+import java.time.LocalDate;
+
 @Component
 public class PatientMapper {
 
@@ -22,8 +24,8 @@ public class PatientMapper {
         patient.setName(patientRequestDto.getName());
         patient.setEmail(patientRequestDto.getEmail());
         patient.setAddress(patientRequestDto.getAddress());
-        patient.setDateOfBirth(patientRequestDto.getDateOfBirth());
-        patient.setRegisteredDate(patientRequestDto.getRegisteredDate());
+        patient.setDateOfBirth(LocalDate.parse(patientRequestDto.getDateOfBirth()));
+        patient.setRegisteredDate(LocalDate.parse(patientRequestDto.getRegisteredDate()));
 
         return patient;
     }
