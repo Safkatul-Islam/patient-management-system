@@ -29,7 +29,7 @@ public class GlobalHandlerException {
         log.warn("Email already exist {}", ex.getMessage());
 
         Map<String, String> errors = new HashMap<>();
-        errors.put("message", "Email already exists!");
+        errors.put("Error", "Email already exists!");
         return ResponseEntity.badRequest().body(errors);
     }
 }
