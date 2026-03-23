@@ -1,0 +1,12 @@
+### Update an existing patient entity
+PUT http://localhost:4000/api/v1/123e4567-e89b-12d3-a456-426614174000
+Content-Type: application/json
+
+{
+  "name": "Mark Collin",
+  "email": "markcollin24@gmail.com",
+  "address": "123 Main St, Springfield 90000",
+  "dateOfBirth": "1985-06-15"
+}
+
+###
