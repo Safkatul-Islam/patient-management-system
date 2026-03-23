@@ -3,12 +3,15 @@ package org.pms.patientservice.service;
 import org.pms.patientservice.dto.PatientRequestDto;
 import org.pms.patientservice.dto.PatientResponseDto;
 import org.pms.patientservice.exception.EmailAlreadyExistsException;
+import org.pms.patientservice.exception.PatientNotFoundException;
 import org.pms.patientservice.mapper.PatientMapper;
 import org.pms.patientservice.model.Patient;
 import org.pms.patientservice.repository.PatientRepository;
 import org.springframework.stereotype.Service;
 
+import java.time.LocalDate;
 import java.util.List;
+import java.util.UUID;
 
 @Service
 public class PatientService {
@@ -37,5 +40,23 @@ public class PatientService {
         Patient newPatient = patientRepository.save(patientMapper.mapToEntity(patientRequestDto));
 
         return patientMapper.mapToDto(newPatient);
+    }
+
+    public PatientResponseDto updatePatient(UUID id,  PatientRequestDto patientRequestDto) {
+        Patient patient = patientRepository.findById(id).orElseThrow(() -> new PatientNotFoundException("Patient not found with ID: " + id));
+
+        if (patientRepository.existsByEmail(patientRequestDto.getEmail())) {
+            throw new EmailAlreadyExistsException("A patient with email "+ patientRequestDto.getEmail() + " already exists!");
+        }
+
+        patient.setName(patientRequestDto.getName());
+        patient.setEmail(patientRequestDto.getEmail());
+        patient.setAddress(patientRequestDto.getAddress());
+        patient.setDateOfBirth(LocalDate.parse(patientRequestDto.getDateOfBirth()));
+
+        Patient updatedPatient = patientRepository.save(patient);
+
+        return patientMapper.mapToDto(updatedPatient);
+
     }
 }
