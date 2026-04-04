@@ -35,18 +35,18 @@ public class PatientService {
 
     public PatientResponseDto createPatient(PatientRequestDto patientRequestDto) {
         if (patientRepository.existsByEmail(patientRequestDto.getEmail())) {
-            throw new EmailAlreadyExistsException("A patient with email "+ patientRequestDto.getEmail() + " already exists!");
+            throw new EmailAlreadyExistsException("A patient with email " + patientRequestDto.getEmail() + " already exists!");
         }
         Patient newPatient = patientRepository.save(patientMapper.mapToEntity(patientRequestDto));
 
         return patientMapper.mapToDto(newPatient);
     }
 
-    public PatientResponseDto updatePatient(UUID id,  PatientRequestDto patientRequestDto) {
+    public PatientResponseDto updatePatient(UUID id, PatientRequestDto patientRequestDto) {
         Patient patient = patientRepository.findById(id).orElseThrow(() -> new PatientNotFoundException("Patient not found with ID: " + id));
 
-        if (patientRepository.existsByEmail(patientRequestDto.getEmail())) {
-            throw new EmailAlreadyExistsException("A patient with email "+ patientRequestDto.getEmail() + " already exists!");
+        if (patientRepository.existsByEmailAndIdNot(patientRequestDto.getEmail(), id)) {
+            throw new EmailAlreadyExistsException("A patient with email " + patientRequestDto.getEmail() + " already exists!");
         }
 
         patient.setName(patientRequestDto.getName());
