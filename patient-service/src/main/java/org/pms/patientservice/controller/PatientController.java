@@ -1,6 +1,5 @@
 package org.pms.patientservice.controller;
 
-import jakarta.validation.Valid;
 import jakarta.validation.groups.Default;
 import org.pms.patientservice.dto.PatientRequestDto;
 import org.pms.patientservice.dto.PatientResponseDto;
