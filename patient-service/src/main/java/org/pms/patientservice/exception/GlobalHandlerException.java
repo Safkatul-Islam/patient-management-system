@@ -1,11 +1,13 @@
 package org.pms.patientservice.exception;
 
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ControllerAdvice;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 
+import java.time.format.DateTimeParseException;
 import java.util.HashMap;
 import java.util.Map;
 
@@ -30,7 +32,7 @@ public class GlobalHandlerException {
 
         Map<String, String> errors = new HashMap<>();
         errors.put("Error", "Email already exists!");
-        return ResponseEntity.badRequest().body(errors);
+        return ResponseEntity.status(HttpStatus.CONFLICT).body(errors);
     }
 
     @ExceptionHandler(PatientNotFoundException.class)
@@ -39,6 +41,16 @@ public class GlobalHandlerException {
 
         Map<String, String> error = new HashMap<>();
         error.put("Message", "Patient not found with this ID");
+        return ResponseEntity.status(HttpStatus.NOT_FOUND).body(error);
+    }
+
+    @ExceptionHandler(DateTimeParseException.class)
+    public ResponseEntity<Map<String, String>> handleDateTimeParseException(DateTimeParseException ex) {
+        // Log the parse failure but never surface the exception detail to the caller.
+        log.warn("Unparseable date received: {}", ex.getMessage());
+
+        Map<String, String> error = new HashMap<>();
+        error.put("Error", "Invalid date format. Expected ISO-8601 (yyyy-MM-dd).");
         return ResponseEntity.badRequest().body(error);
     }
 }
