@@ -1,16 +1,29 @@
-# Compiled class file
+# ---------- Secrets & credentials ----------
+# Never commit real credentials. Templates (.env.example) are allowed.
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.jks
+*.keystore
+secrets/
+
+# ---------- Maven / build output ----------
+# Applies to every service in the monorepo, not just patient-service.
+**/target/
+build/
+out/
+!**/src/main/**/target/
+!**/src/test/**/target/
+!**/src/main/**/build/
+!**/src/test/**/build/
+
+# Compiled class files
 *.class
 
-# Log file
-*.log
-
-# BlueJ files
-*.ctxt
-
-# Mobile Tools for Java (J2ME)
-.mtj.tmp/
-
-# Package Files #
+# Packaged archives - keep the Maven wrapper jar, which is not build output
 *.jar
 *.war
 *.nar
@@ -18,9 +31,62 @@
 *.zip
 *.tar.gz
 *.rar
+!**/.mvn/wrapper/maven-wrapper.jar
 
-# virtual machine crash logs, see http://www.java.com/en/download/help/error_hotspot.xml
+# ---------- Logs ----------
+*.log
+logs/
+
+# JVM crash logs
 hs_err_pid*
 replay_pid*
 
-.idea
+# ---------- Docker ----------
+docker-compose.override.yml
+docker-compose.override.yaml
+
+# ---------- Terraform (Phase 4 - IaC) ----------
+# tfstate holds provider credentials and resource attributes in plaintext.
+.terraform/
+*.tfstate
+*.tfstate.*
+*.tfvars
+!*.tfvars.example
+crash.log
+crash.*.log
+
+# ---------- IDE: IntelliJ ----------
+.idea/
+*.iml
+*.ipr
+*.iws
+
+# ---------- IDE: Eclipse / STS ----------
+.apt_generated
+.classpath
+.factorypath
+.project
+.settings/
+.springBeans
+.sts4-cache
+
+# ---------- IDE: VS Code / NetBeans ----------
+.vscode/
+/nbproject/private/
+/nbbuild/
+/nbdist/
+/.nb-gradle/
+
+# ---------- OS ----------
+.DS_Store
+Thumbs.db
+
+# ---------- Frontend (planned client) ----------
+node_modules/
+dist/
+
+# ---------- Misc ----------
+# BlueJ
+*.ctxt
+# Mobile Tools for Java (J2ME)
+.mtj.tmp/
