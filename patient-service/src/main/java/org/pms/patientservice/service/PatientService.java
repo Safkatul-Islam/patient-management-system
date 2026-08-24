@@ -53,11 +53,20 @@ public class PatientService {
         patient.setEmail(patientRequestDto.getEmail());
         patient.setAddress(patientRequestDto.getAddress());
         patient.setDateOfBirth(LocalDate.parse(patientRequestDto.getDateOfBirth()));
-        patient.setRegisteredDate(LocalDate.parse(patientRequestDto.getRegisteredDate()));
+
+        // registeredDate is only required when creating a patient, so an update
+        // that omits it keeps the date the patient was originally registered on.
+        if (hasText(patientRequestDto.getRegisteredDate())) {
+            patient.setRegisteredDate(LocalDate.parse(patientRequestDto.getRegisteredDate()));
+        }
 
         Patient updatedPatient = patientRepository.save(patient);
 
         return patientMapper.mapToDto(updatedPatient);
+    }
+
+    private static boolean hasText(String value) {
+        return value != null && !value.isBlank();
     }
 
     public void deletePatient(UUID id) {
