@@ -1,5 +1,8 @@
 package org.pms.patientservice.service;
 
+import java.time.LocalDate;
+import java.util.List;
+import java.util.UUID;
 import org.pms.patientservice.dto.PatientRequestDto;
 import org.pms.patientservice.dto.PatientResponseDto;
 import org.pms.patientservice.exception.EmailAlreadyExistsException;
@@ -9,69 +12,70 @@ import org.pms.patientservice.model.Patient;
 import org.pms.patientservice.repository.PatientRepository;
 import org.springframework.stereotype.Service;
 
-import java.time.LocalDate;
-import java.util.List;
-import java.util.UUID;
-
 @Service
 public class PatientService {
 
-    private final PatientRepository patientRepository;
-    private final PatientMapper patientMapper;
+  private final PatientRepository patientRepository;
+  private final PatientMapper patientMapper;
 
-    public PatientService(PatientRepository patientRepository,
-                          PatientMapper patientMapper) {
-        this.patientRepository = patientRepository;
-        this.patientMapper = patientMapper;
+  public PatientService(PatientRepository patientRepository, PatientMapper patientMapper) {
+    this.patientRepository = patientRepository;
+    this.patientMapper = patientMapper;
+  }
+
+  public List<PatientResponseDto> getAllPatient() {
+    List<Patient> patients = patientRepository.findAll();
+
+    return patients.stream().map(patientMapper::mapToDto).toList();
+  }
+
+  public PatientResponseDto createPatient(PatientRequestDto patientRequestDto) {
+    if (patientRepository.existsByEmail(patientRequestDto.getEmail())) {
+      throw new EmailAlreadyExistsException(
+          "A patient with email " + patientRequestDto.getEmail() + " already exists!");
+    }
+    Patient newPatient = patientRepository.save(patientMapper.mapToEntity(patientRequestDto));
+
+    return patientMapper.mapToDto(newPatient);
+  }
+
+  public PatientResponseDto updatePatient(UUID id, PatientRequestDto patientRequestDto) {
+    Patient patient =
+        patientRepository
+            .findById(id)
+            .orElseThrow(() -> new PatientNotFoundException("Patient not found with ID: " + id));
+
+    if (patientRepository.existsByEmailAndIdNot(patientRequestDto.getEmail(), id)) {
+      throw new EmailAlreadyExistsException(
+          "A patient with email " + patientRequestDto.getEmail() + " already exists!");
     }
 
-    public List<PatientResponseDto> getAllPatient() {
-        List<Patient> patients = patientRepository.findAll();
+    patient.setName(patientRequestDto.getName());
+    patient.setEmail(patientRequestDto.getEmail());
+    patient.setAddress(patientRequestDto.getAddress());
+    patient.setDateOfBirth(LocalDate.parse(patientRequestDto.getDateOfBirth()));
 
-        return patients.stream()
-                .map(patientMapper::mapToDto)
-                .toList();
+    // registeredDate is only required when creating a patient, so an update
+    // that omits it keeps the date the patient was originally registered on.
+    if (hasText(patientRequestDto.getRegisteredDate())) {
+      patient.setRegisteredDate(LocalDate.parse(patientRequestDto.getRegisteredDate()));
     }
 
-    public PatientResponseDto createPatient(PatientRequestDto patientRequestDto) {
-        if (patientRepository.existsByEmail(patientRequestDto.getEmail())) {
-            throw new EmailAlreadyExistsException("A patient with email " + patientRequestDto.getEmail() + " already exists!");
-        }
-        Patient newPatient = patientRepository.save(patientMapper.mapToEntity(patientRequestDto));
+    Patient updatedPatient = patientRepository.save(patient);
 
-        return patientMapper.mapToDto(newPatient);
-    }
+    return patientMapper.mapToDto(updatedPatient);
+  }
 
-    public PatientResponseDto updatePatient(UUID id, PatientRequestDto patientRequestDto) {
-        Patient patient = patientRepository.findById(id).orElseThrow(() -> new PatientNotFoundException("Patient not found with ID: " + id));
+  private static boolean hasText(String value) {
+    return value != null && !value.isBlank();
+  }
 
-        if (patientRepository.existsByEmailAndIdNot(patientRequestDto.getEmail(), id)) {
-            throw new EmailAlreadyExistsException("A patient with email " + patientRequestDto.getEmail() + " already exists!");
-        }
+  public void deletePatient(UUID id) {
+    Patient patient =
+        patientRepository
+            .findById(id)
+            .orElseThrow(() -> new PatientNotFoundException("Patient not found with ID: " + id));
 
-        patient.setName(patientRequestDto.getName());
-        patient.setEmail(patientRequestDto.getEmail());
-        patient.setAddress(patientRequestDto.getAddress());
-        patient.setDateOfBirth(LocalDate.parse(patientRequestDto.getDateOfBirth()));
-
-        // registeredDate is only required when creating a patient, so an update
-        // that omits it keeps the date the patient was originally registered on.
-        if (hasText(patientRequestDto.getRegisteredDate())) {
-            patient.setRegisteredDate(LocalDate.parse(patientRequestDto.getRegisteredDate()));
-        }
-
-        Patient updatedPatient = patientRepository.save(patient);
-
-        return patientMapper.mapToDto(updatedPatient);
-    }
-
-    private static boolean hasText(String value) {
-        return value != null && !value.isBlank();
-    }
-
-    public void deletePatient(UUID id) {
-        Patient patient = patientRepository.findById(id).orElseThrow(() -> new PatientNotFoundException("Patient not found with ID: " + id));
-
-        patientRepository.delete(patient);
-    }
+    patientRepository.delete(patient);
+  }
 }

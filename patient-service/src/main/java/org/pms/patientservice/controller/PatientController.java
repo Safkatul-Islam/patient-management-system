@@ -1,6 +1,8 @@
 package org.pms.patientservice.controller;
 
 import jakarta.validation.groups.Default;
+import java.util.List;
+import java.util.UUID;
 import org.pms.patientservice.dto.PatientRequestDto;
 import org.pms.patientservice.dto.PatientResponseDto;
 import org.pms.patientservice.dto.validators.CreatePatientValidationGroup;
@@ -10,39 +12,40 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.*;
 
-import java.util.List;
-import java.util.UUID;
-
 @RestController
 @RequestMapping("/api/v1/patients")
 public class PatientController {
-    private final PatientService patientService;
+  private final PatientService patientService;
 
-    public PatientController(PatientService patientService) {
-        this.patientService = patientService;
-    }
+  public PatientController(PatientService patientService) {
+    this.patientService = patientService;
+  }
 
-    @GetMapping
-    public ResponseEntity<List<PatientResponseDto>> getAllPatient() {
-        List<PatientResponseDto> patients = patientService.getAllPatient();
-        return ResponseEntity.ok(patients);
-    }
+  @GetMapping
+  public ResponseEntity<List<PatientResponseDto>> getAllPatient() {
+    List<PatientResponseDto> patients = patientService.getAllPatient();
+    return ResponseEntity.ok(patients);
+  }
 
-    @PostMapping
-    public ResponseEntity<PatientResponseDto> createPatient(@Validated({ Default.class, CreatePatientValidationGroup.class }) @RequestBody PatientRequestDto patientRequestDto) {
-        PatientResponseDto patientResponseDto = patientService.createPatient(patientRequestDto);
-        return new ResponseEntity<>(patientResponseDto, HttpStatus.CREATED);
-    }
+  @PostMapping
+  public ResponseEntity<PatientResponseDto> createPatient(
+      @Validated({Default.class, CreatePatientValidationGroup.class}) @RequestBody
+          PatientRequestDto patientRequestDto) {
+    PatientResponseDto patientResponseDto = patientService.createPatient(patientRequestDto);
+    return new ResponseEntity<>(patientResponseDto, HttpStatus.CREATED);
+  }
 
-    @PutMapping("/{id}")
-    public ResponseEntity<PatientResponseDto> updatePatient(@PathVariable UUID id, @Validated({ Default.class }) @RequestBody PatientRequestDto requestDto) {
-        PatientResponseDto updatedPatient = patientService.updatePatient(id, requestDto);
-        return ResponseEntity.ok(updatedPatient);
-    }
+  @PutMapping("/{id}")
+  public ResponseEntity<PatientResponseDto> updatePatient(
+      @PathVariable UUID id,
+      @Validated({Default.class}) @RequestBody PatientRequestDto requestDto) {
+    PatientResponseDto updatedPatient = patientService.updatePatient(id, requestDto);
+    return ResponseEntity.ok(updatedPatient);
+  }
 
-    @DeleteMapping("/{id}")
-    public ResponseEntity<HttpStatus> deletePatient(@PathVariable UUID id) {
-        patientService.deletePatient(id);
-        return new ResponseEntity<>(HttpStatus.NO_CONTENT);
-    }
+  @DeleteMapping("/{id}")
+  public ResponseEntity<HttpStatus> deletePatient(@PathVariable UUID id) {
+    patientService.deletePatient(id);
+    return new ResponseEntity<>(HttpStatus.NO_CONTENT);
+  }
 }

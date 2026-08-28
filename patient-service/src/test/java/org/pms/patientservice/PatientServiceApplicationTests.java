@@ -9,8 +9,6 @@ import org.springframework.context.annotation.Import;
 @Import(PostgresTestcontainerConfig.class)
 class PatientServiceApplicationTests {
 
-    @Test
-    void contextLoads() {
-    }
-
+  @Test
+  void contextLoads() {}
 }

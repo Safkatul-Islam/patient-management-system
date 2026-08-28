@@ -8,20 +8,20 @@ import org.pms.patientservice.dto.validators.CreatePatientValidationGroup;
 
 @Data
 public class PatientRequestDto {
-    @NotBlank
-    @Size(max = 100, message = "Name cannot exceed 100 characters!")
-    private String name;
+  @NotBlank
+  @Size(max = 100, message = "Name cannot exceed 100 characters!")
+  private String name;
 
-    @NotBlank(message = "Email is required!")
-    @Email(message = "Invalid email format!")
-    private String email;
+  @NotBlank(message = "Email is required!")
+  @Email(message = "Invalid email format!")
+  private String email;
 
-    @NotBlank(message = "Address is required!")
-    private String address;
+  @NotBlank(message = "Address is required!")
+  private String address;
 
-    @NotBlank(message = "Date of Birth is required!")
-    private String dateOfBirth;
+  @NotBlank(message = "Date of Birth is required!")
+  private String dateOfBirth;
 
-    @NotBlank(groups = CreatePatientValidationGroup.class, message = "Register date is required!")
-    private String registeredDate;
+  @NotBlank(groups = CreatePatientValidationGroup.class, message = "Register date is required!")
+  private String registeredDate;
 }
