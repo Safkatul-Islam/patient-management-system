@@ -1,0 +1,20 @@
+version: 2
+
+updates:
+  - package-ecosystem: "maven"
+    directory: "/patient-service"
+    schedule:
+      interval: "weekly"
+
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+
+  # The Postgres image pin lives in docker-compose.yml. The "docker" ecosystem
+  # only reads Dockerfiles, of which this repo has none; "docker-compose" is the
+  # one that tracks compose image tags.
+  - package-ecosystem: "docker-compose"
+    directory: "/"
+    schedule:
+      interval: "weekly"
