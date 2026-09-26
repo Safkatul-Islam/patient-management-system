@@ -25,8 +25,11 @@ class MalformedDateTest extends AbstractPatientApiTest {
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(patientJson(uniqueEmail(), "not-a-date", "2024-01-01")))
         .andExpect(status().isBadRequest())
+        .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON))
+        .andExpect(jsonPath("$.status").value(400))
+        .andExpect(jsonPath("$.title").value("Invalid date"))
         .andExpect(
-            jsonPath("$.Error").value("Invalid date format. Expected ISO-8601 (yyyy-MM-dd)."));
+            jsonPath("$.detail").value("Invalid date format. Expected ISO-8601 (yyyy-MM-dd)."));
   }
 
   @Test
@@ -63,7 +66,7 @@ class MalformedDateTest extends AbstractPatientApiTest {
                     .contentType(MediaType.APPLICATION_JSON)
                     .content(patientJson(uniqueEmail(), "not-a-date", "2024-01-01")))
             .andExpect(status().isBadRequest())
-            .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_JSON))
+            .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON))
             .andReturn()
             .getResponse()
             .getContentAsString();
