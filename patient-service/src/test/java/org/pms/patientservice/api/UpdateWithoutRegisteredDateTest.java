@@ -1,6 +1,6 @@
 package org.pms.patientservice.api;
 
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -36,19 +36,20 @@ class UpdateWithoutRegisteredDateTest extends AbstractPatientApiTest {
   void updateWithoutRegisteredDatePreservesOriginalValue() throws Exception {
     String id = createPatient(uniqueEmail());
 
+    // createPatient registers the patient on 2024-01-01.
     mockMvc
         .perform(
             put(PATIENTS + "/" + id)
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(patientJson(uniqueEmail(), "1991-02-03", null)))
-        .andExpect(status().isOk());
-
-    // registeredDate is not exposed on the response DTO, so assert the record is
-    // still readable and intact rather than silently nulled out by the update.
-    mockMvc
-        .perform(get(PATIENTS))
         .andExpect(status().isOk())
-        .andExpect(jsonPath("$[?(@.id == '" + id + "')]").isNotEmpty());
+        .andExpect(jsonPath("$.registeredDate").value("2024-01-01"));
+
+    // ...and the stored record, not just the PUT response, keeps it.
+    assertThat(fetchAllPatients())
+        .filteredOn(patient -> id.equals(patient.get("id")))
+        .singleElement()
+        .satisfies(patient -> assertThat(patient.get("registeredDate")).isEqualTo("2024-01-01"));
   }
 
   @Test
@@ -61,6 +62,7 @@ class UpdateWithoutRegisteredDateTest extends AbstractPatientApiTest {
             put(PATIENTS + "/" + id)
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(patientJson(uniqueEmail(), "1991-02-03", "2025-05-05")))
-        .andExpect(status().isOk());
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.registeredDate").value("2025-05-05"));
   }
 }

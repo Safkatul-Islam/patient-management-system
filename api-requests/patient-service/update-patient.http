@@ -1,10 +1,10 @@
-### Update an existing patient entity
-PUT http://localhost:4000/api/v1/patients/223e4567-e89b-12d3-a456-426614174000
+### Update an existing patient entity (run create-patient.http first to set patientId)
+PUT http://localhost:4000/api/v1/patients/{{patientId}}
 Content-Type: application/json
 
 {
   "name": "Mark Collin Ron",
-  "email": "markcollin24@gmail.com",
+  "email": "markcollin24@example.com",
   "address": "123 Main St, Springfield 90000",
   "dateOfBirth": "1985-06-15"
 }

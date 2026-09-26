@@ -1,12 +1,14 @@
 package org.pms.patientservice.controller;
 
 import jakarta.validation.groups.Default;
-import java.util.List;
 import java.util.UUID;
 import org.pms.patientservice.dto.PatientRequestDto;
 import org.pms.patientservice.dto.PatientResponseDto;
 import org.pms.patientservice.dto.validators.CreatePatientValidationGroup;
 import org.pms.patientservice.service.PatientService;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.web.PagedModel;
+import org.springframework.data.web.SortDefault;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.validation.annotation.Validated;
@@ -21,10 +23,14 @@ public class PatientController {
     this.patientService = patientService;
   }
 
+  /**
+   * Lists patients one page at a time ({@code ?page=&size=&sort=}); unsorted requests are ordered
+   * by name. Page size defaults and limits come from {@code spring.data.web.pageable.*}.
+   */
   @GetMapping
-  public ResponseEntity<List<PatientResponseDto>> getAllPatient() {
-    List<PatientResponseDto> patients = patientService.getAllPatient();
-    return ResponseEntity.ok(patients);
+  public ResponseEntity<PagedModel<PatientResponseDto>> getPatients(
+      @SortDefault(sort = "name") Pageable pageable) {
+    return ResponseEntity.ok(new PagedModel<>(patientService.getPatients(pageable)));
   }
 
   @PostMapping
