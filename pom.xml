@@ -13,6 +13,7 @@
     <name>patient-management-system</name>
 
     <modules>
+        <module>common</module>
         <module>patient-service</module>
     </modules>
 
