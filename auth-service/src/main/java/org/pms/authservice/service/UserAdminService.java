@@ -8,6 +8,7 @@ import org.pms.authservice.dto.CreateStaffUserRequest;
 import org.pms.authservice.dto.UserResponse;
 import org.pms.authservice.exception.EmailAlreadyInUseException;
 import org.pms.authservice.exception.InvalidAccountRequestException;
+import org.pms.authservice.exception.PatientAlreadyLinkedException;
 import org.pms.authservice.mapper.UserMapper;
 import org.pms.authservice.model.Role;
 import org.pms.authservice.model.User;
@@ -22,6 +23,7 @@ import org.springframework.transaction.annotation.Transactional;
 public class UserAdminService {
 
   static final String EMAIL_UNIQUE_CONSTRAINT = "users_email_key";
+  static final String PATIENT_UNIQUE_CONSTRAINT = "users_patient_id_key";
 
   private final UserRepository userRepository;
   private final PasswordEncoder passwordEncoder;
@@ -46,7 +48,10 @@ public class UserAdminService {
     return UserMapper.toResponse(create(request.email(), request.password(), request.role(), null));
   }
 
-  /** The patient id is trusted as given; patient-service is not consulted. */
+  /**
+   * The patient id is trusted as given; patient-service is not consulted. A patient has at most one
+   * login account.
+   */
   @Transactional
   public UserResponse createPatientAccount(CreatePatientAccountRequest request) {
     if (request.patientId() == null) {
@@ -62,26 +67,33 @@ public class UserAdminService {
     if (userRepository.existsByEmail(normalizedEmail)) {
       throw new EmailAlreadyInUseException();
     }
+    if (patientId != null && userRepository.existsByPatientId(patientId)) {
+      throw new PatientAlreadyLinkedException();
+    }
     User user =
         new User(
             normalizedEmail, passwordEncoder.encode(password), role, patientId, clock.instant());
     try {
       return userRepository.saveAndFlush(user);
     } catch (DataIntegrityViolationException ex) {
-      // A concurrent request took the email between the check above and the insert.
-      if (violates(ex, EMAIL_UNIQUE_CONSTRAINT)) {
+      // A concurrent request took the email or the patient between the checks and the insert.
+      String constraint = violatedConstraint(ex);
+      if (EMAIL_UNIQUE_CONSTRAINT.equalsIgnoreCase(constraint)) {
         throw new EmailAlreadyInUseException();
+      }
+      if (PATIENT_UNIQUE_CONSTRAINT.equalsIgnoreCase(constraint)) {
+        throw new PatientAlreadyLinkedException();
       }
       throw ex;
     }
   }
 
-  private static boolean violates(DataIntegrityViolationException ex, String constraint) {
+  private static String violatedConstraint(DataIntegrityViolationException ex) {
     for (Throwable cause = ex; cause != null; cause = cause.getCause()) {
       if (cause instanceof ConstraintViolationException violation) {
-        return constraint.equalsIgnoreCase(violation.getConstraintName());
+        return violation.getConstraintName();
       }
     }
-    return false;
+    return null;
   }
 }

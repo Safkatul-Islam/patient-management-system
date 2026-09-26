@@ -37,6 +37,17 @@ public class ApiExceptionHandler extends ProblemDetailsExceptionHandler {
     return respond(ex, HttpStatus.CONFLICT, "Conflict", "Email already in use.", request);
   }
 
+  @ExceptionHandler(PatientAlreadyLinkedException.class)
+  public ResponseEntity<Object> handlePatientAlreadyLinked(
+      PatientAlreadyLinkedException ex, WebRequest request) {
+    return respond(
+        ex,
+        HttpStatus.CONFLICT,
+        "Patient already has an account",
+        "Only one login account may be linked to a patient.",
+        request);
+  }
+
   /** Same body shape as a bean-validation failure, so clients handle both one way. */
   @ExceptionHandler(InvalidAccountRequestException.class)
   public ResponseEntity<Object> handleInvalidAccountRequest(

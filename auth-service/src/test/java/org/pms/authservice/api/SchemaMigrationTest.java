@@ -46,13 +46,39 @@ class SchemaMigrationTest extends AbstractAuthApiTest {
         .hasMessageContaining("users_role_check");
   }
 
-  private void insertUser(String role, UUID patientId) {
+  @Test
+  @DisplayName("DB rejects a second account for the same patient")
+  void uniqueIndexRejectsDuplicatePatientId() {
+    UUID patientId = UUID.randomUUID();
+    insertUser("PATIENT", patientId);
+
+    assertThatThrownBy(() -> insertUser("PATIENT", patientId))
+        .isInstanceOf(DataIntegrityViolationException.class)
+        .hasMessageContaining("users_patient_id_key");
+  }
+
+  @Test
+  @DisplayName("Any number of staff accounts may have a NULL patient id")
+  void uniqueIndexAllowsManyNullPatientIds() {
+    insertUser("DOCTOR", null);
+    insertUser("NURSE", null);
+    insertUser("BILLING_STAFF", null);
+
+    Integer staffWithoutPatient =
+        jdbcTemplate.queryForObject(
+            "select count(*) from users where patient_id is null", Integer.class);
+    assertThat(staffWithoutPatient).isGreaterThanOrEqualTo(3);
+  }
+
+  private UUID insertUser(String role, UUID patientId) {
+    UUID id = UUID.randomUUID();
     jdbcTemplate.update(
         "insert into users (id, email, password_hash, role, patient_id, created_at)"
             + " values (?, ?, 'not-a-real-hash', ?, ?, now())",
-        UUID.randomUUID(),
+        id,
         uniqueEmail(),
         role,
         patientId);
+    return id;
   }
 }

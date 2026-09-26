@@ -16,3 +16,7 @@ CREATE TABLE users (
     -- A PATIENT account must be linked to a patient; no other role may be.
     CONSTRAINT users_patient_link_check CHECK ((role = 'PATIENT') = (patient_id IS NOT NULL))
 );
+
+-- One login account per patient. Partial, so the NULL patient_id of every staff
+-- account is not constrained.
+CREATE UNIQUE INDEX users_patient_id_key ON users (patient_id) WHERE patient_id IS NOT NULL;

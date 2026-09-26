@@ -26,6 +26,7 @@ import org.pms.authservice.dto.CreateStaffUserRequest;
 import org.pms.authservice.dto.UserResponse;
 import org.pms.authservice.exception.EmailAlreadyInUseException;
 import org.pms.authservice.exception.InvalidAccountRequestException;
+import org.pms.authservice.exception.PatientAlreadyLinkedException;
 import org.pms.authservice.model.Role;
 import org.pms.authservice.model.User;
 import org.pms.authservice.repository.UserRepository;
@@ -187,7 +188,40 @@ class UserAdminServiceTest {
   }
 
   @Test
-  @DisplayName("Other integrity violations are not disguised as email conflicts")
+  @DisplayName("A second account for an already-linked patient is a conflict")
+  void patientAlreadyLinked() {
+    UUID patientId = UUID.randomUUID();
+    when(userRepository.existsByPatientId(patientId)).thenReturn(true);
+
+    assertThatThrownBy(
+            () ->
+                service.createPatientAccount(
+                    new CreatePatientAccountRequest("second@pms.test", PASSWORD, patientId)))
+        .isInstanceOf(PatientAlreadyLinkedException.class)
+        .hasMessageNotContaining(patientId.toString());
+    verify(userRepository, never()).saveAndFlush(any());
+  }
+
+  @Test
+  @DisplayName("Patient-link race on insert is mapped to the same conflict")
+  void patientLinkRaceIsConflict() {
+    when(passwordEncoder.encode(PASSWORD)).thenReturn("bcrypt-hash");
+    when(userRepository.saveAndFlush(any()))
+        .thenThrow(
+            new DataIntegrityViolationException(
+                "duplicate",
+                new ConstraintViolationException(
+                    "duplicate key", new SQLException(), "users_patient_id_key")));
+
+    assertThatThrownBy(
+            () ->
+                service.createPatientAccount(
+                    new CreatePatientAccountRequest("race@pms.test", PASSWORD, UUID.randomUUID())))
+        .isInstanceOf(PatientAlreadyLinkedException.class);
+  }
+
+  @Test
+  @DisplayName("Other integrity violations are not disguised as conflicts")
   void otherViolationPropagates() {
     when(passwordEncoder.encode(PASSWORD)).thenReturn("bcrypt-hash");
     DataIntegrityViolationException other =

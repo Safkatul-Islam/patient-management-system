@@ -1,6 +1,8 @@
 package org.pms.authservice.api;
 
+import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.hasItem;
+import static org.hamcrest.Matchers.not;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -119,6 +121,22 @@ class AdminUserApiTest extends AbstractAuthApiTest {
         .andExpect(status().isConflict())
         .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON))
         .andExpect(jsonPath("$.detail").value("Email already in use."));
+  }
+
+  @Test
+  @DisplayName("A second account for the same patient is a 409 problem")
+  void secondAccountForSamePatientIsConflict() throws Exception {
+    UUID patientId = UUID.randomUUID();
+    createPatientAccount(uniqueEmail(), randomPassword(), patientId);
+
+    postJson(
+            "/auth/admin/patients",
+            patientAccountJson(uniqueEmail(), randomPassword(), patientId),
+            adminAccessToken())
+        .andExpect(status().isConflict())
+        .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON))
+        .andExpect(jsonPath("$.title").value("Patient already has an account"))
+        .andExpect(jsonPath("$.detail").value(not(containsString(patientId.toString()))));
   }
 
   @Test

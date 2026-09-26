@@ -1,5 +1,6 @@
 ### ADMIN only: create a PATIENT login linked to a patient in patient-service
-### (the patientId is not checked against patient-service)
+### (the patientId is not checked against patient-service; one account per patient,
+### a second one for the same patientId is a 409)
 POST http://localhost:4005/auth/admin/patients
 Authorization: Bearer <admin-access-token>
 Content-Type: application/json
