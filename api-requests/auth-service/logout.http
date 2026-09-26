@@ -1,0 +1,10 @@
+### Revoke one of the caller's refresh tokens. Always 204.
+POST http://localhost:4005/auth/logout
+Authorization: Bearer <access-token>
+Content-Type: application/json
+
+{
+  "refreshToken": "<refresh-token-to-revoke>"
+}
+
+###

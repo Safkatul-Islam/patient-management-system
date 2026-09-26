@@ -1,0 +1,14 @@
+### ADMIN only: create a PATIENT login linked to a patient in patient-service
+### (the patientId is not checked against patient-service; one account per patient,
+### a second one for the same patientId is a 409)
+POST http://localhost:4005/auth/admin/patients
+Authorization: Bearer <admin-access-token>
+Content-Type: application/json
+
+{
+  "email": "patient.example@pms.test",
+  "password": "<12-to-72-character-password>",
+  "patientId": "00000000-0000-4000-8000-000000000001"
+}
+
+###

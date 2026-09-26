@@ -1,0 +1,10 @@
+### Log in; returns an access token (15 min) and a refresh token (7 days)
+POST http://localhost:4005/auth/login
+Content-Type: application/json
+
+{
+  "email": "dr.example@pms.test",
+  "password": "<password>"
+}
+
+###
