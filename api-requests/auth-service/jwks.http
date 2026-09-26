@@ -1,0 +1,4 @@
+### Public key set used to verify access tokens
+GET http://localhost:4005/.well-known/jwks.json
+
+###
