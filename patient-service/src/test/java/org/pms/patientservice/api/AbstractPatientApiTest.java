@@ -1,9 +1,13 @@
 package org.pms.patientservice.api;
 
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.jayway.jsonpath.JsonPath;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 import org.pms.patientservice.support.PostgresTestcontainerConfig;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -62,5 +66,28 @@ abstract class AbstractPatientApiTest {
             .getContentAsString();
 
     return JsonPath.read(response, "$.id");
+  }
+
+  /**
+   * Reads every page of the patient list. Other tests share the database, so a given patient is not
+   * guaranteed to be on the first page.
+   */
+  protected List<Map<String, Object>> fetchAllPatients() throws Exception {
+    List<Map<String, Object>> patients = new ArrayList<>();
+    int page = 0;
+    int totalPages;
+    do {
+      String response =
+          mockMvc
+              .perform(get(PATIENTS).param("page", String.valueOf(page)).param("size", "100"))
+              .andExpect(status().isOk())
+              .andReturn()
+              .getResponse()
+              .getContentAsString();
+      patients.addAll(JsonPath.read(response, "$.content"));
+      totalPages = JsonPath.read(response, "$.page.totalPages");
+      page++;
+    } while (page < totalPages);
+    return patients;
   }
 }

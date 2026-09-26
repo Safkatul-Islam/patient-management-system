@@ -1,4 +1,7 @@
-### GET request to retrive all patients
+### First page of patients (default size 20, sorted by name)
+# Response shape: {"content": [...], "page": {"size", "number", "totalElements", "totalPages"}}
 GET http://localhost:4000/api/v1/patients
 
-###
+### Second page of 5 patients, most recently registered first
+# Sortable properties: name, email, dateOfBirth, registeredDate. Sizes above 100 are capped.
+GET http://localhost:4000/api/v1/patients?page=1&size=5&sort=registeredDate,desc

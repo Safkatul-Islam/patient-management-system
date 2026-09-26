@@ -8,8 +8,12 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import java.time.LocalDate;
+import java.util.List;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
+import org.pms.patientservice.model.Patient;
+import org.springframework.data.core.PropertyReferenceException;
+import org.springframework.data.core.TypeInformation;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
@@ -37,6 +41,17 @@ class GlobalHandlerExceptionTest {
     @GetMapping("/bad-date")
     String badDate(@RequestParam String date) {
       return LocalDate.parse(date).toString();
+    }
+
+    @GetMapping("/unsupported-sort")
+    String unsupportedSort() {
+      throw new InvalidSortPropertyException(List.of("name", "email"));
+    }
+
+    @GetMapping("/unknown-sort")
+    String unknownSort() {
+      throw new PropertyReferenceException(
+          "secretColumn", TypeInformation.of(Patient.class), List.of());
     }
   }
 
@@ -78,5 +93,29 @@ class GlobalHandlerExceptionTest {
             jsonPath("$.detail").value("Invalid date format. Expected ISO-8601 (yyyy-MM-dd)."))
         .andExpect(content().string(not(containsString("31-02-1990"))))
         .andExpect(content().string(not(containsString("DateTimeParseException"))));
+  }
+
+  @Test
+  void unsupportedSortPropertyIs400ProblemListingSortableProperties() throws Exception {
+    mockMvc
+        .perform(get("/unsupported-sort"))
+        .andExpect(status().isBadRequest())
+        .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON))
+        .andExpect(jsonPath("$.title").value("Invalid sort parameter"))
+        .andExpect(
+            jsonPath("$.detail")
+                .value("Unsupported sort property. Sortable properties: name, email"));
+  }
+
+  @Test
+  void unknownEntityPropertyIs400ProblemWithoutInternals() throws Exception {
+    mockMvc
+        .perform(get("/unknown-sort"))
+        .andExpect(status().isBadRequest())
+        .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON))
+        .andExpect(jsonPath("$.title").value("Invalid sort parameter"))
+        .andExpect(jsonPath("$.detail").value("Unsupported sort property."))
+        .andExpect(content().string(not(containsString("secretColumn"))))
+        .andExpect(content().string(not(containsString("Patient"))));
   }
 }

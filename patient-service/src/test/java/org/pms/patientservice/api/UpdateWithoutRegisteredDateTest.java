@@ -1,6 +1,6 @@
 package org.pms.patientservice.api;
 
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -46,10 +46,10 @@ class UpdateWithoutRegisteredDateTest extends AbstractPatientApiTest {
         .andExpect(jsonPath("$.registeredDate").value("2024-01-01"));
 
     // ...and the stored record, not just the PUT response, keeps it.
-    mockMvc
-        .perform(get(PATIENTS))
-        .andExpect(status().isOk())
-        .andExpect(jsonPath("$[?(@.id == '" + id + "')].registeredDate").value("2024-01-01"));
+    assertThat(fetchAllPatients())
+        .filteredOn(patient -> id.equals(patient.get("id")))
+        .singleElement()
+        .satisfies(patient -> assertThat(patient.get("registeredDate")).isEqualTo("2024-01-01"));
   }
 
   @Test

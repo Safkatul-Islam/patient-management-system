@@ -3,6 +3,7 @@ package org.pms.patientservice.exception;
 import java.time.format.DateTimeParseException;
 import lombok.extern.slf4j.Slf4j;
 import org.pms.common.web.problem.ProblemDetailsExceptionHandler;
+import org.springframework.data.core.PropertyReferenceException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.ExceptionHandler;
@@ -52,6 +53,27 @@ public class GlobalHandlerException extends ProblemDetailsExceptionHandler {
         HttpStatus.BAD_REQUEST,
         "Invalid date",
         "Invalid date format. Expected ISO-8601 (yyyy-MM-dd).",
+        request);
+  }
+
+  @ExceptionHandler(InvalidSortPropertyException.class)
+  public ResponseEntity<Object> handleInvalidSortProperty(
+      InvalidSortPropertyException ex, WebRequest request) {
+    // The message is built from the allow-list only, so it is safe to return.
+    return respond(ex, HttpStatus.BAD_REQUEST, "Invalid sort parameter", ex.getMessage(), request);
+  }
+
+  /** Safety net for a sort that reaches Spring Data without passing the service allow-list. */
+  @ExceptionHandler(PropertyReferenceException.class)
+  public ResponseEntity<Object> handlePropertyReference(
+      PropertyReferenceException ex, WebRequest request) {
+    // The exception message names internal types, so it stays out of the response.
+    log.warn("Rejected request: sort property not found on entity");
+    return respond(
+        ex,
+        HttpStatus.BAD_REQUEST,
+        "Invalid sort parameter",
+        "Unsupported sort property.",
         request);
   }
 }

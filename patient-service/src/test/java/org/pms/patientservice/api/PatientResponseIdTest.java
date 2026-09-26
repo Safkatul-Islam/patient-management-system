@@ -1,5 +1,6 @@
 package org.pms.patientservice.api;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -20,10 +21,10 @@ class PatientResponseIdTest extends AbstractPatientApiTest {
     String createdId = createPatient(email);
 
     // The id must be usable to find the same record in the collection.
-    mockMvc
-        .perform(get(PATIENTS))
-        .andExpect(status().isOk())
-        .andExpect(jsonPath("$[?(@.email == '" + email + "')].id").value(createdId));
+    assertThat(fetchAllPatients())
+        .filteredOn(patient -> email.equals(patient.get("email")))
+        .singleElement()
+        .satisfies(patient -> assertThat(patient.get("id")).isEqualTo(createdId));
   }
 
   @Test
@@ -44,7 +45,7 @@ class PatientResponseIdTest extends AbstractPatientApiTest {
     mockMvc
         .perform(get(PATIENTS))
         .andExpect(status().isOk())
-        .andExpect(jsonPath("$[*].id").isNotEmpty())
-        .andExpect(jsonPath("$[?(!@.id)]").isEmpty());
+        .andExpect(jsonPath("$.content[*].id").isNotEmpty())
+        .andExpect(jsonPath("$.content[?(!@.id)]").isEmpty());
   }
 }
