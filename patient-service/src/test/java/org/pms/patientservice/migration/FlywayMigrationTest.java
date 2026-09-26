@@ -47,4 +47,16 @@ class FlywayMigrationTest {
 
     assertThat(seeded).isZero();
   }
+
+  @Test
+  @DisplayName("the email unique constraint has the name the exception handler relies on")
+  void emailUniqueConstraintIsNamed() {
+    List<String> uniqueConstraints =
+        jdbcTemplate.queryForList(
+            "SELECT constraint_name FROM information_schema.table_constraints"
+                + " WHERE table_name = 'patients' AND constraint_type = 'UNIQUE'",
+            String.class);
+
+    assertThat(uniqueConstraints).containsExactly("patients_email_key");
+  }
 }

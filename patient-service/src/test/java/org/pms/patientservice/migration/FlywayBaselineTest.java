@@ -98,6 +98,13 @@ class FlywayBaselineTest {
               assertThat(row.get("success")).isEqualTo(true);
             });
     assertThat(legacyEmails()).containsExactly("legacy-one@example.com", "legacy-two@example.com");
+    // The 409 mapping for concurrent duplicate emails relies on this constraint name.
+    assertThat(
+            jdbc.queryForList(
+                "SELECT constraint_name FROM information_schema.table_constraints"
+                    + " WHERE table_name = 'patients' AND constraint_type = 'UNIQUE'",
+                String.class))
+        .containsExactly("patients_email_key");
   }
 
   @Test

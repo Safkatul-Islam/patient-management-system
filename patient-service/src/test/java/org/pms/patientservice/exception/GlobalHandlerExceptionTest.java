@@ -7,11 +7,14 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import java.sql.SQLException;
 import java.time.LocalDate;
 import java.util.List;
 import java.util.UUID;
+import org.hibernate.exception.ConstraintViolationException;
 import org.junit.jupiter.api.Test;
 import org.pms.patientservice.model.Patient;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.data.core.PropertyReferenceException;
 import org.springframework.data.core.TypeInformation;
 import org.springframework.http.MediaType;
@@ -48,6 +51,15 @@ class GlobalHandlerExceptionTest {
       throw new InvalidSortPropertyException(List.of("name", "email"));
     }
 
+    @GetMapping("/integrity-violation")
+    String integrityViolation(@RequestParam String constraint) {
+      SQLException sqlError =
+          new SQLException("duplicate key; Key (email)=(" + EMAIL + ") already exists", "23505");
+      throw new DataIntegrityViolationException(
+          "could not execute statement",
+          new ConstraintViolationException("could not execute statement", sqlError, constraint));
+    }
+
     @GetMapping("/unknown-sort")
     String unknownSort() {
       throw new PropertyReferenceException(
@@ -80,6 +92,29 @@ class GlobalHandlerExceptionTest {
         .andExpect(jsonPath("$.status").value(409))
         .andExpect(jsonPath("$.title").value("Email already in use"))
         .andExpect(content().string(not(containsString(EMAIL))));
+  }
+
+  @Test
+  void emailUniqueConstraintViolationIs409ProblemWithoutTheEmail() throws Exception {
+    mockMvc
+        .perform(get("/integrity-violation").param("constraint", "patients_email_key"))
+        .andExpect(status().isConflict())
+        .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON))
+        .andExpect(jsonPath("$.status").value(409))
+        .andExpect(jsonPath("$.title").value("Email already in use"))
+        .andExpect(content().string(not(containsString(EMAIL))));
+  }
+
+  @Test
+  void otherIntegrityViolationIsGeneric500NotConflict() throws Exception {
+    mockMvc
+        .perform(get("/integrity-violation").param("constraint", "patients_pkey"))
+        .andExpect(status().isInternalServerError())
+        .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON))
+        .andExpect(jsonPath("$.title").value("Internal server error"))
+        .andExpect(jsonPath("$.detail").value("An unexpected error occurred."))
+        .andExpect(content().string(not(containsString(EMAIL))))
+        .andExpect(content().string(not(containsString("patients_pkey"))));
   }
 
   @Test
