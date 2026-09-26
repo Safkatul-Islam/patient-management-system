@@ -1,13 +1,15 @@
-### GET request to example server
+### Create a patient; stores its id as patientId for the update and delete requests
 POST http://localhost:4000/api/v1/patients
 Content-Type: application/json
 
 {
   "name": "Daniel",
-  "email": "daniel@gmail.com",
+  "email": "daniel@example.com",
   "address": "234 S New Avn 93240",
   "dateOfBirth": "2000-04-16",
   "registeredDate": "2025-04-12"
 }
+
+> {% client.global.set("patientId", response.body.id); %}
 
 ###
