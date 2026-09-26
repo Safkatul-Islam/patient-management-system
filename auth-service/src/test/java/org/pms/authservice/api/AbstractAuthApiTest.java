@@ -5,6 +5,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import com.jayway.jsonpath.JsonPath;
 import java.util.UUID;
+import org.pms.authservice.service.TokenHashing;
 import org.pms.authservice.support.PostgresTestcontainerConfig;
 import org.pms.authservice.support.TestRsaKeys;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -135,6 +136,14 @@ abstract class AbstractAuthApiTest {
     String password = randomPassword();
     createStaff(email, password, "DOCTOR");
     return login(email, password);
+  }
+
+  /** The stored revocation reason of a raw refresh token, or null while it is active. */
+  protected String revocationReason(String rawRefreshToken) {
+    return jdbcTemplate.queryForObject(
+        "select revocation_reason from refresh_tokens where token_hash = ?",
+        String.class,
+        TokenHashing.sha256Hex(rawRefreshToken));
   }
 
   protected void deactivate(String userId) {

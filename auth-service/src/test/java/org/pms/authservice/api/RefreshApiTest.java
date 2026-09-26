@@ -52,7 +52,12 @@ class RefreshApiTest extends AbstractAuthApiTest {
     postJson("/auth/refresh", refreshJson(first))
         .andExpect(status().isUnauthorized())
         .andExpect(jsonPath("$.detail").value("The refresh token is invalid or expired."));
-    postJson("/auth/refresh", refreshJson(second)).andExpect(status().isUnauthorized());
+    assertThat(revocationReason(first)).isEqualTo("ROTATED");
+    assertThat(revocationReason(second)).isEqualTo("REUSE_DETECTED");
+
+    postJson("/auth/refresh", refreshJson(second))
+        .andExpect(status().isUnauthorized())
+        .andExpect(jsonPath("$.detail").value("The refresh token is invalid or expired."));
   }
 
   @Test

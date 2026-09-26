@@ -8,6 +8,7 @@ import java.util.UUID;
 import org.pms.authservice.config.RefreshTokenProperties;
 import org.pms.authservice.exception.InvalidRefreshTokenException;
 import org.pms.authservice.model.RefreshToken;
+import org.pms.authservice.model.RevocationReason;
 import org.pms.authservice.model.User;
 import org.pms.authservice.repository.RefreshTokenRepository;
 import org.slf4j.Logger;
@@ -18,13 +19,17 @@ import org.springframework.transaction.annotation.Transactional;
 /**
  * Opaque, single-use refresh tokens with reuse detection.
  *
- * <p>Every refresh revokes the presented token and issues a new one in the same transaction. If a
- * token that is already revoked is presented again, someone replayed it: either the legitimate
- * client or an attacker holds a stolen copy, and the server cannot tell which. All of the user's
- * active refresh tokens are then revoked, forcing a fresh login. A side effect is that a legitimate
- * client that sends the same token twice concurrently (e.g. two tabs refreshing at once) is also
- * logged out; the row lock makes the second request see the first one's revocation. The same
- * applies to a token presented again after logout.
+ * <p>Every refresh revokes the presented token (reason {@code ROTATED}) and issues a new one in the
+ * same transaction. If a {@code ROTATED} token is presented again, someone replayed it: either the
+ * legitimate client or an attacker holds a stolen copy, and the server cannot tell which. All of
+ * the user's active refresh tokens are then revoked (reason {@code REUSE_DETECTED}), forcing a
+ * fresh login. A token revoked by logout or by an earlier reuse response is simply rejected: it is
+ * not a theft signal, so the user's other sessions stay valid. Every rejection returns the same
+ * 401, so the caller cannot tell which case applied.
+ *
+ * <p>Known consequence: a legitimate client that sends the same token twice concurrently (e.g. two
+ * tabs refreshing at once) is logged out. The row lock makes the second request wait and then see
+ * the first one's {@code ROTATED} revocation, which is indistinguishable from a replay.
  */
 @Service
 public class RefreshTokenService {
@@ -69,18 +74,22 @@ public class RefreshTokenService {
     User user = current.getUser();
 
     if (current.isRevoked()) {
-      int revoked = refreshTokenRepository.revokeAllActiveForUser(user.getId(), now);
-      log.warn(
-          "Revoked refresh token presented again; revoked {} active refresh token(s) of user {}",
-          revoked,
-          user.getId());
+      if (current.getRevocationReason() == RevocationReason.ROTATED) {
+        int revoked =
+            refreshTokenRepository.revokeAllActiveForUser(
+                user.getId(), now, RevocationReason.REUSE_DETECTED);
+        log.warn(
+            "Rotated refresh token presented again; revoked {} active refresh token(s) of user {}",
+            revoked,
+            user.getId());
+      }
       throw new InvalidRefreshTokenException();
     }
     if (current.isExpiredAt(now) || !user.isActive()) {
       throw new InvalidRefreshTokenException();
     }
 
-    current.revoke(now);
+    current.revoke(now, RevocationReason.ROTATED);
     return new Rotation(user, store(user, now));
   }
 
@@ -93,7 +102,7 @@ public class RefreshTokenService {
     refreshTokenRepository
         .findByTokenHash(TokenHashing.sha256Hex(rawToken))
         .filter(token -> token.getUser().getId().equals(userId))
-        .ifPresent(token -> token.revoke(clock.instant()));
+        .ifPresent(token -> token.revoke(clock.instant(), RevocationReason.LOGOUT));
   }
 
   public long ttlSeconds() {

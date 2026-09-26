@@ -19,12 +19,15 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.EnumSource;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.pms.authservice.config.RefreshTokenProperties;
 import org.pms.authservice.exception.InvalidRefreshTokenException;
 import org.pms.authservice.model.RefreshToken;
+import org.pms.authservice.model.RevocationReason;
 import org.pms.authservice.model.Role;
 import org.pms.authservice.model.User;
 import org.pms.authservice.repository.RefreshTokenRepository;
@@ -73,22 +76,40 @@ class RefreshTokenServiceTest {
     RefreshTokenService.Rotation rotation = service.rotate(RAW);
 
     assertThat(current.getRevokedAt()).isEqualTo(NOW);
+    assertThat(current.getRevocationReason()).isEqualTo(RevocationReason.ROTATED);
     assertThat(rotation.user()).isSameAs(user);
     assertThat(rotation.refreshToken()).isNotEqualTo(RAW);
-    assertThat(captureSaved().getTokenHash())
+    RefreshToken replacement = captureSaved();
+    assertThat(replacement.getTokenHash())
         .isEqualTo(TokenHashing.sha256Hex(rotation.refreshToken()));
+    assertThat(replacement.isRevoked()).isFalse();
+    assertThat(replacement.getRevocationReason()).isNull();
   }
 
   @Test
-  @DisplayName("Presenting a revoked token revokes all of the user's tokens and fails")
-  void reuseRevokesFamily() {
-    RefreshToken current = token(NOW.plus(Duration.ofDays(1)));
-    current.revoke(NOW.minusSeconds(60));
+  @DisplayName("Presenting a ROTATED token revokes the user's active tokens as REUSE_DETECTED")
+  void rotatedTokenReuseRevokesFamily() {
+    RefreshToken current = revokedToken(RevocationReason.ROTATED);
     when(repository.findByTokenHash(anyString())).thenReturn(Optional.of(current));
 
     assertThatThrownBy(() -> service.rotate(RAW)).isInstanceOf(InvalidRefreshTokenException.class);
-    verify(repository).revokeAllActiveForUser(user.getId(), NOW);
+    verify(repository).revokeAllActiveForUser(user.getId(), NOW, RevocationReason.REUSE_DETECTED);
     verify(repository, never()).save(any());
+  }
+
+  @ParameterizedTest
+  @EnumSource(
+      value = RevocationReason.class,
+      names = {"LOGOUT", "REUSE_DETECTED"})
+  @DisplayName("Presenting a LOGOUT or REUSE_DETECTED token fails without family revocation")
+  void nonRotatedRevokedTokenIsPlainRejection(RevocationReason reason) {
+    RefreshToken current = revokedToken(reason);
+    when(repository.findByTokenHash(anyString())).thenReturn(Optional.of(current));
+
+    assertThatThrownBy(() -> service.rotate(RAW)).isInstanceOf(InvalidRefreshTokenException.class);
+    verify(repository, never()).revokeAllActiveForUser(any(), any(), any());
+    verify(repository, never()).save(any());
+    assertThat(current.getRevocationReason()).isEqualTo(reason);
   }
 
   @Test
@@ -139,6 +160,19 @@ class RefreshTokenServiceTest {
     service.revokeIfOwnedBy(RAW, user.getId());
 
     assertThat(current.getRevokedAt()).isEqualTo(NOW);
+    assertThat(current.getRevocationReason()).isEqualTo(RevocationReason.LOGOUT);
+  }
+
+  @Test
+  @DisplayName("Logout of an already rotated token keeps its original reason")
+  void logoutKeepsEarlierReason() {
+    RefreshToken current = revokedToken(RevocationReason.ROTATED);
+    when(repository.findByTokenHash(anyString())).thenReturn(Optional.of(current));
+
+    service.revokeIfOwnedBy(RAW, user.getId());
+
+    assertThat(current.getRevocationReason()).isEqualTo(RevocationReason.ROTATED);
+    assertThat(current.getRevokedAt()).isEqualTo(NOW.minusSeconds(60));
   }
 
   @Test
@@ -154,6 +188,12 @@ class RefreshTokenServiceTest {
 
   private RefreshToken token(Instant expiresAt) {
     return new RefreshToken(user, TokenHashing.sha256Hex(RAW), expiresAt.minus(TTL), expiresAt);
+  }
+
+  private RefreshToken revokedToken(RevocationReason reason) {
+    RefreshToken revoked = token(NOW.plus(Duration.ofDays(1)));
+    revoked.revoke(NOW.minusSeconds(60), reason);
+    return revoked;
   }
 
   private RefreshToken captureSaved() {

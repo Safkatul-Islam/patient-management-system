@@ -5,6 +5,7 @@ import java.time.Instant;
 import java.util.Optional;
 import java.util.UUID;
 import org.pms.authservice.model.RefreshToken;
+import org.pms.authservice.model.RevocationReason;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Modifying;
@@ -21,10 +22,13 @@ public interface RefreshTokenRepository extends JpaRepository<RefreshToken, UUID
   @Lock(LockModeType.PESSIMISTIC_WRITE)
   Optional<RefreshToken> findByTokenHash(String tokenHash);
 
-  /** Revokes every still-active token of a user; returns how many rows changed. */
+  /** Revokes every still-active token of a user with the given reason; returns rows changed. */
   @Modifying
   @Query(
-      "update RefreshToken t set t.revokedAt = :now"
+      "update RefreshToken t set t.revokedAt = :now, t.revocationReason = :reason"
           + " where t.user.id = :userId and t.revokedAt is null")
-  int revokeAllActiveForUser(@Param("userId") UUID userId, @Param("now") Instant now);
+  int revokeAllActiveForUser(
+      @Param("userId") UUID userId,
+      @Param("now") Instant now,
+      @Param("reason") RevocationReason reason);
 }

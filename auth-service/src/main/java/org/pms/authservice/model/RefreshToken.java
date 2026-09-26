@@ -2,6 +2,8 @@ package org.pms.authservice.model;
 
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
+import jakarta.persistence.EnumType;
+import jakarta.persistence.Enumerated;
 import jakarta.persistence.FetchType;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
@@ -39,6 +41,11 @@ public class RefreshToken {
   @Column(name = "revoked_at")
   private Instant revokedAt;
 
+  /** Set together with {@link #revokedAt}; the database enforces the pairing. */
+  @Enumerated(EnumType.STRING)
+  @Column(name = "revocation_reason", length = 20)
+  private RevocationReason revocationReason;
+
   @Column(name = "created_at", nullable = false)
   private Instant createdAt;
 
@@ -57,9 +64,11 @@ public class RefreshToken {
     return !expiresAt.isAfter(now);
   }
 
-  public void revoke(Instant now) {
+  /** Revokes the token; a token that is already revoked keeps its original time and reason. */
+  public void revoke(Instant now, RevocationReason reason) {
     if (revokedAt == null) {
       revokedAt = now;
+      revocationReason = reason;
     }
   }
 }

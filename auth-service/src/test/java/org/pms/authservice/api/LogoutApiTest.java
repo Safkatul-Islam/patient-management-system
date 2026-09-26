@@ -1,5 +1,6 @@
 package org.pms.authservice.api;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -23,6 +24,26 @@ class LogoutApiTest extends AbstractAuthApiTest {
     postJson("/auth/logout", refreshJson(refresh), access).andExpect(status().isNoContent());
 
     postJson("/auth/refresh", refreshJson(refresh)).andExpect(status().isUnauthorized());
+  }
+
+  @Test
+  @DisplayName("Refreshing a logged-out token is a 401 but the user's other sessions keep working")
+  void loggedOutTokenIsNotTreatedAsTheft() throws Exception {
+    String email = uniqueEmail();
+    String password = randomPassword();
+    createStaff(email, password, "DOCTOR");
+    String phone = login(email, password);
+    String laptopRefresh = JsonPath.read(login(email, password), "$.refreshToken");
+    String phoneRefresh = JsonPath.read(phone, "$.refreshToken");
+
+    postJson("/auth/logout", refreshJson(phoneRefresh), JsonPath.read(phone, "$.accessToken"))
+        .andExpect(status().isNoContent());
+
+    postJson("/auth/refresh", refreshJson(phoneRefresh))
+        .andExpect(status().isUnauthorized())
+        .andExpect(jsonPath("$.detail").value("The refresh token is invalid or expired."));
+    postJson("/auth/refresh", refreshJson(laptopRefresh)).andExpect(status().isOk());
+    assertThat(revocationReason(phoneRefresh)).isEqualTo("LOGOUT");
   }
 
   @Test

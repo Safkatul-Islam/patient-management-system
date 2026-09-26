@@ -70,6 +70,44 @@ class SchemaMigrationTest extends AbstractAuthApiTest {
     assertThat(staffWithoutPatient).isGreaterThanOrEqualTo(3);
   }
 
+  @Test
+  @DisplayName("DB rejects an unknown revocation reason")
+  void checkRejectsUnknownRevocationReason() {
+    UUID userId = insertUser("DOCTOR", null);
+
+    assertThatThrownBy(() -> insertRefreshToken(userId, true, "STOLEN"))
+        .isInstanceOf(DataIntegrityViolationException.class)
+        .hasMessageContaining("refresh_tokens_revocation_reason_check");
+  }
+
+  @Test
+  @DisplayName("DB requires revoked_at and revocation_reason to be set together")
+  void checkPairsRevokedAtWithReason() {
+    UUID userId = insertUser("DOCTOR", null);
+
+    assertThatThrownBy(() -> insertRefreshToken(userId, true, null))
+        .isInstanceOf(DataIntegrityViolationException.class)
+        .hasMessageContaining("refresh_tokens_revocation_consistency_check");
+    assertThatThrownBy(() -> insertRefreshToken(userId, false, "LOGOUT"))
+        .isInstanceOf(DataIntegrityViolationException.class)
+        .hasMessageContaining("refresh_tokens_revocation_consistency_check");
+    insertRefreshToken(userId, false, null);
+    insertRefreshToken(userId, true, "ROTATED");
+  }
+
+  private void insertRefreshToken(UUID userId, boolean revoked, String reason) {
+    jdbcTemplate.update(
+        "insert into refresh_tokens"
+            + " (id, user_id, token_hash, expires_at, revoked_at, revocation_reason, created_at)"
+            + " values (?, ?, ?, now() + interval '1 day', "
+            + (revoked ? "now()" : "null")
+            + ", ?, now())",
+        UUID.randomUUID(),
+        userId,
+        UUID.randomUUID().toString(),
+        reason);
+  }
+
   private UUID insertUser(String role, UUID patientId) {
     UUID id = UUID.randomUUID();
     jdbcTemplate.update(
