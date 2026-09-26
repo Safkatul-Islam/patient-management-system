@@ -5,12 +5,14 @@ import java.util.UUID;
 import org.pms.patientservice.dto.PatientRequestDto;
 import org.pms.patientservice.dto.PatientResponseDto;
 import org.pms.patientservice.dto.validators.CreatePatientValidationGroup;
+import org.pms.patientservice.security.GatewayIdentity;
 import org.pms.patientservice.service.PatientService;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.web.PagedModel;
 import org.springframework.data.web.SortDefault;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.*;
 
@@ -31,6 +33,13 @@ public class PatientController {
   public ResponseEntity<PagedModel<PatientResponseDto>> getPatients(
       @SortDefault(sort = "name") Pageable pageable) {
     return ResponseEntity.ok(new PagedModel<>(patientService.getPatients(pageable)));
+  }
+
+  /** A PATIENT may only read its own record; the service enforces that ownership rule. */
+  @GetMapping("/{id}")
+  public ResponseEntity<PatientResponseDto> getPatient(
+      @PathVariable UUID id, @AuthenticationPrincipal GatewayIdentity caller) {
+    return ResponseEntity.ok(patientService.getPatient(id, caller));
   }
 
   @PostMapping

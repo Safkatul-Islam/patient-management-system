@@ -39,6 +39,8 @@ class ResourcePathTest extends AbstractPatientApiTest {
 
     String id = createPatient(uniqueEmail());
 
+    mockMvc.perform(get(PATIENTS + "/" + id).with(asAdmin())).andExpect(status().isOk());
+
     mockMvc
         .perform(
             put(PATIENTS + "/" + id)
@@ -54,6 +56,7 @@ class ResourcePathTest extends AbstractPatientApiTest {
   @DisplayName("the current paths are routed (control for the old-path checks)")
   void currentPathsAreRouted() throws Exception {
     assertThat(isRouted(HttpMethod.POST, PATIENTS)).isTrue();
+    assertThat(isRouted(HttpMethod.GET, PATIENTS + "/" + UUID.randomUUID())).isTrue();
     assertThat(isRouted(HttpMethod.PUT, PATIENTS + "/" + UUID.randomUUID())).isTrue();
     assertThat(isRouted(HttpMethod.DELETE, PATIENTS + "/" + UUID.randomUUID())).isTrue();
   }
