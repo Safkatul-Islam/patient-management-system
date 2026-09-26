@@ -2,6 +2,9 @@ package org.pms.authservice.config;
 
 import static org.springframework.security.web.servlet.util.matcher.PathPatternRequestMatcher.pathPattern;
 
+import org.pms.common.web.security.ProblemAccessDeniedHandler;
+import org.pms.common.web.security.ProblemAuthenticationEntryPoint;
+import org.pms.common.web.security.SecurityProblemWriter;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.HttpMethod;
@@ -10,6 +13,7 @@ import org.springframework.security.config.annotation.web.configurers.AbstractHt
 import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
+import org.springframework.security.oauth2.core.OAuth2AuthenticationException;
 import org.springframework.security.oauth2.jwt.JwtDecoder;
 import org.springframework.security.oauth2.server.resource.authentication.JwtAuthenticationConverter;
 import org.springframework.security.oauth2.server.resource.web.BearerTokenResolver;
@@ -17,6 +21,7 @@ import org.springframework.security.oauth2.server.resource.web.DefaultBearerToke
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.util.matcher.OrRequestMatcher;
 import org.springframework.security.web.util.matcher.RequestMatcher;
+import tools.jackson.databind.json.JsonMapper;
 
 /**
  * Stateless bearer-token security. Authorization is URL-based on purpose: failures are then raised
@@ -93,6 +98,32 @@ public class SecurityConfig {
   @Bean
   PasswordEncoder passwordEncoder() {
     return new BCryptPasswordEncoder(BCRYPT_COST);
+  }
+
+  @Bean
+  SecurityProblemWriter securityProblemWriter(JsonMapper jsonMapper) {
+    return new SecurityProblemWriter(jsonMapper);
+  }
+
+  /**
+   * RFC 6750: a presented-but-rejected token gets {@code error="invalid_token"}; a missing token
+   * gets the bare scheme. The body never says why a token was rejected.
+   */
+  @Bean
+  ProblemAuthenticationEntryPoint problemAuthenticationEntryPoint(
+      SecurityProblemWriter problemWriter) {
+    return new ProblemAuthenticationEntryPoint(
+        problemWriter,
+        exception ->
+            exception instanceof OAuth2AuthenticationException
+                ? "Bearer error=\"invalid_token\""
+                : "Bearer",
+        "A valid bearer access token is required.");
+  }
+
+  @Bean
+  ProblemAccessDeniedHandler problemAccessDeniedHandler(SecurityProblemWriter problemWriter) {
+    return new ProblemAccessDeniedHandler(problemWriter);
   }
 
   /**
