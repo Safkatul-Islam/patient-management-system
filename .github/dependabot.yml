@@ -1,8 +1,9 @@
 version: 2
 
 updates:
+  # The root aggregator POM lists every module, so Dependabot follows them from "/".
   - package-ecosystem: "maven"
-    directory: "/patient-service"
+    directory: "/"
     schedule:
       interval: "weekly"
 

@@ -22,11 +22,11 @@ jobs:
           distribution: temurin
           java-version: '21'
           cache: maven
-          cache-dependency-path: patient-service/pom.xml
+          cache-dependency-path: '**/pom.xml'
 
+      # Root aggregator POM builds and tests every module in one reactor run.
       # Testcontainers-backed tests need a Docker daemon; ubuntu-latest provides one.
       - name: Build and test
-        working-directory: patient-service
         run: mvn -B verify
 
   secret-scan:
