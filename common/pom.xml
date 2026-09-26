@@ -20,10 +20,28 @@
     </properties>
 
     <dependencies>
-        <!-- Optional: every consuming service already brings its own web starter. -->
+        <!-- All optional: each consumer brings the stack it actually runs on. Servlet services
+             (patient/auth) use the webmvc + security pieces, the reactive gateway the webflux
+             + context-propagation ones; auto-configuration activates only what applies. -->
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-webmvc</artifactId>
+            <optional>true</optional>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework</groupId>
+            <artifactId>spring-webflux</artifactId>
+            <optional>true</optional>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.security</groupId>
+            <artifactId>spring-security-web</artifactId>
+            <optional>true</optional>
+        </dependency>
+        <!-- Carries the correlation ID from the Reactor context into the MDC on reactive threads. -->
+        <dependency>
+            <groupId>io.micrometer</groupId>
+            <artifactId>context-propagation</artifactId>
             <optional>true</optional>
         </dependency>
 

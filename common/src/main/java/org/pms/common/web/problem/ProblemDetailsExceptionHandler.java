@@ -33,7 +33,7 @@ import org.springframework.web.servlet.mvc.method.annotation.ResponseEntityExcep
  */
 public abstract class ProblemDetailsExceptionHandler extends ResponseEntityExceptionHandler {
 
-  public static final String CORRELATION_ID_PROPERTY = "correlationId";
+  public static final String CORRELATION_ID_PROPERTY = Problems.CORRELATION_ID_PROPERTY;
   public static final String ERRORS_PROPERTY = "errors";
 
   private static final Logger log = LoggerFactory.getLogger(ProblemDetailsExceptionHandler.class);
@@ -87,9 +87,7 @@ public abstract class ProblemDetailsExceptionHandler extends ResponseEntityExcep
   }
 
   protected static ProblemDetail problem(HttpStatus status, String title, String detail) {
-    ProblemDetail problem = ProblemDetail.forStatusAndDetail(status, detail);
-    problem.setTitle(title);
-    return problem;
+    return Problems.create(status, title, detail);
   }
 
   @Override

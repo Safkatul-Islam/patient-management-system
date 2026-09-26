@@ -1,1 +1,2 @@
 org.pms.common.autoconfigure.CommonWebAutoConfiguration
+org.pms.common.autoconfigure.CommonReactiveWebAutoConfiguration
