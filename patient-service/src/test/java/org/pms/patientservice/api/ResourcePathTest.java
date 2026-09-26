@@ -47,9 +47,12 @@ class ResourcePathTest extends AbstractPatientApiTest {
   @Test
   @DisplayName("the old bare-id update path /api/v1/{id} is gone")
   void oldBareIdUpdatePathIsGone() throws Exception {
+    // An existing id, so a 404 can only mean the path itself is not routed.
+    String id = createPatient(uniqueEmail());
+
     mockMvc
         .perform(
-            put("/api/v1/" + SEEDED_PATIENT_ID)
+            put("/api/v1/" + id)
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(patientJson(uniqueEmail(), "1990-01-01", null)))
         .andExpect(status().isNotFound());
@@ -58,8 +61,8 @@ class ResourcePathTest extends AbstractPatientApiTest {
   @Test
   @DisplayName("the old singular delete path /api/v1/patient/{id} is gone")
   void oldSingularDeletePathIsGone() throws Exception {
-    mockMvc
-        .perform(delete("/api/v1/patient/" + SEEDED_PATIENT_ID))
-        .andExpect(status().isNotFound());
+    String id = createPatient(uniqueEmail());
+
+    mockMvc.perform(delete("/api/v1/patient/" + id)).andExpect(status().isNotFound());
   }
 }

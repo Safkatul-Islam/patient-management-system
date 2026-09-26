@@ -25,9 +25,6 @@ abstract class AbstractPatientApiTest {
 
   protected static final String PATIENTS = "/api/v1/patients";
 
-  /** A seed patient from data.sql, present in every fresh container. */
-  protected static final String SEEDED_PATIENT_ID = "123e4567-e89b-12d3-a456-426614174000";
-
   @Autowired protected MockMvc mockMvc;
 
   protected static String uniqueEmail() {
