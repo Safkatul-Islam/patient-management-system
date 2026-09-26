@@ -83,9 +83,16 @@ public class SecurityConfig {
     return http.build();
   }
 
+  /**
+   * Chosen deliberately rather than inherited: 10 is the library's current default and OWASP's
+   * minimum for BCrypt. Revisit upwards if the login latency budget allows.
+   */
+  static final int BCRYPT_COST = 10;
+
+  /** One encoder for stored hashes and the login dummy hash, so both cost the same to check. */
   @Bean
   PasswordEncoder passwordEncoder() {
-    return new BCryptPasswordEncoder();
+    return new BCryptPasswordEncoder(BCRYPT_COST);
   }
 
   /**
