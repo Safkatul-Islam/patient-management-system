@@ -46,6 +46,21 @@ class ProblemResponseTest extends AbstractPatientApiTest {
   }
 
   @Test
+  @DisplayName("log lines written while handling a request carry its correlation id")
+  void requestLogsCarryCorrelationId(CapturedOutput output) throws Exception {
+    mockMvc
+        .perform(
+            put(PATIENTS + "/" + UUID.randomUUID())
+                .header(CORRELATION_HEADER, "test-corr-log")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(patientJson(uniqueEmail(), "1990-01-01", "2024-01-01")))
+        .andExpect(status().isNotFound());
+
+    // Structured (ECS JSON) console logging includes MDC entries as fields.
+    assertThat(output.getOut()).contains("\"correlationId\":\"test-corr-log\"");
+  }
+
+  @Test
   @DisplayName("a generated correlation id is echoed in the header and the problem body")
   void generatedCorrelationIdMatchesHeaderAndBody() throws Exception {
     MvcResult result =
