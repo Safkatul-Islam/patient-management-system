@@ -36,19 +36,20 @@ class UpdateWithoutRegisteredDateTest extends AbstractPatientApiTest {
   void updateWithoutRegisteredDatePreservesOriginalValue() throws Exception {
     String id = createPatient(uniqueEmail());
 
+    // createPatient registers the patient on 2024-01-01.
     mockMvc
         .perform(
             put(PATIENTS + "/" + id)
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(patientJson(uniqueEmail(), "1991-02-03", null)))
-        .andExpect(status().isOk());
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.registeredDate").value("2024-01-01"));
 
-    // registeredDate is not exposed on the response DTO, so assert the record is
-    // still readable and intact rather than silently nulled out by the update.
+    // ...and the stored record, not just the PUT response, keeps it.
     mockMvc
         .perform(get(PATIENTS))
         .andExpect(status().isOk())
-        .andExpect(jsonPath("$[?(@.id == '" + id + "')]").isNotEmpty());
+        .andExpect(jsonPath("$[?(@.id == '" + id + "')].registeredDate").value("2024-01-01"));
   }
 
   @Test
@@ -61,6 +62,7 @@ class UpdateWithoutRegisteredDateTest extends AbstractPatientApiTest {
             put(PATIENTS + "/" + id)
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(patientJson(uniqueEmail(), "1991-02-03", "2025-05-05")))
-        .andExpect(status().isOk());
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.registeredDate").value("2025-05-05"));
   }
 }
