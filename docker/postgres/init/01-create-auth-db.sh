@@ -4,15 +4,15 @@
 #
 # The postgres image runs /docker-entrypoint-initdb.d scripts ONLY when the data
 # volume is empty (first start). An existing patient-db-data volume skips this
-# script; create the role and database once by hand instead, from the repo root
-# (you will be prompted for the new role's password; nothing lands in shell history):
+# script; run it once by hand instead, from the repo root, after
+# `docker compose up -d` has (re)created the container with this mount and the
+# AUTH_DB_* variables from .env:
 #
-#   docker exec -it pms-postgres psql -U "$POSTGRES_USER" -d postgres \
-#     -c "CREATE ROLE <auth_db_user> LOGIN" -c "\password <auth_db_user>" \
-#     -c "CREATE DATABASE auth_db OWNER <auth_db_user>"
+#   docker exec pms-postgres bash /docker-entrypoint-initdb.d/01-create-auth-db.sh
 #
-# Replace <auth_db_user> with the AUTH_DB_USER value from .env and enter
-# AUTH_DB_PASSWORD at the prompt.
+# On Git Bash (Windows), prefix it with MSYS_NO_PATHCONV=1 so the container path
+# is not rewritten into a Windows path. The password is read from the container's
+# environment, so it never appears on a command line or in shell history.
 #
 # No `set -u`/`pipefail` here: the entrypoint sources non-executable scripts, and
 # those options would leak into it. The entrypoint already runs with `set -e`, and
