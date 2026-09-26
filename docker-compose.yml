@@ -6,10 +6,16 @@ services:
       POSTGRES_DB: patient_db
       POSTGRES_USER: ${POSTGRES_USER}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      # Read by docker/postgres/init/01-create-auth-db.sh to create auth-service's
+      # own role and database (auth_db) next to patient_db.
+      AUTH_DB_USER: ${AUTH_DB_USER}
+      AUTH_DB_PASSWORD: ${AUTH_DB_PASSWORD}
     ports:
       - "127.0.0.1:5432:5432"
     volumes:
       - patient-db-data:/var/lib/postgresql/data
+      # Init scripts run only when the data volume is empty (first start).
+      - ./docker/postgres/init:/docker-entrypoint-initdb.d:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d patient_db"]
       interval: 5s
