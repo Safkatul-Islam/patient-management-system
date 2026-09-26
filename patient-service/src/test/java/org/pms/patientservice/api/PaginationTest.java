@@ -66,21 +66,63 @@ class PaginationTest extends AbstractPatientApiTest {
   @DisplayName("unsorted requests are ordered by name")
   void defaultSortIsByName() throws Exception {
     // Every other test patient is named "Regression Patient", which sorts after this one.
-    mockMvc
-        .perform(
-            post(PATIENTS)
-                .contentType(MediaType.APPLICATION_JSON)
-                .content(
-                    """
-                    {"name":"Aaron Aardvark","email":"%s","address":"1 Sort St",\
-                    "dateOfBirth":"1990-01-01","registeredDate":"2024-01-01"}"""
-                        .formatted(uniqueEmail())))
-        .andExpect(status().isCreated());
+    createNamedPatient("Aaron Aardvark", "2024-01-01");
 
     mockMvc
         .perform(get(PATIENTS))
         .andExpect(status().isOk())
         .andExpect(jsonPath("$.content[0].name").value("Aaron Aardvark"));
+  }
+
+  @Test
+  @DisplayName("a negative page number is treated as the first page")
+  void negativePageIsFirstPage() throws Exception {
+    mockMvc
+        .perform(get(PATIENTS).param("page", "-1").param("size", "5"))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.page.number").value(0))
+        .andExpect(jsonPath("$.page.size").value(5));
+  }
+
+  @Test
+  @DisplayName("a page size of 0 falls back to the default of 20")
+  void zeroPageSizeFallsBackToDefault() throws Exception {
+    mockMvc
+        .perform(get(PATIENTS).param("size", "0"))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.page.size").value(20));
+  }
+
+  @Test
+  @DisplayName("multiple sort parameters apply in order: first is primary, next breaks ties")
+  void multipleSortParametersApplyInOrder() throws Exception {
+    // Registration dates later than any other test patient's, so these three lead the page.
+    // "Xray" would come first if name were the primary sort; it must come last. (Names are
+    // late in the alphabet so they cannot lead the default name-sorted page in other tests.)
+    createNamedPatient("Zulu Multisort", "2099-12-31");
+    createNamedPatient("Yankee Multisort", "2099-12-31");
+    createNamedPatient("Xray Multisort", "2099-12-30");
+
+    mockMvc
+        .perform(
+            get(PATIENTS)
+                .param("sort", "registeredDate,desc")
+                .param("sort", "name,asc")
+                .param("size", "3"))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.content[0].name").value("Yankee Multisort"))
+        .andExpect(jsonPath("$.content[1].name").value("Zulu Multisort"))
+        .andExpect(jsonPath("$.content[2].name").value("Xray Multisort"));
+  }
+
+  @Test
+  @DisplayName("multiple sort parameters with one outside the allow-list are a 400 problem")
+  void multipleSortParametersWithOneDisallowedIs400() throws Exception {
+    mockMvc
+        .perform(get(PATIENTS).param("sort", "name,asc").param("sort", "address,desc"))
+        .andExpect(status().isBadRequest())
+        .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON))
+        .andExpect(jsonPath("$.title").value("Invalid sort parameter"));
   }
 
   @Test
@@ -119,5 +161,18 @@ class PaginationTest extends AbstractPatientApiTest {
         .andExpect(status().isBadRequest())
         .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON))
         .andExpect(jsonPath("$.title").value("Invalid sort parameter"));
+  }
+
+  private void createNamedPatient(String name, String registeredDate) throws Exception {
+    mockMvc
+        .perform(
+            post(PATIENTS)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(
+                    """
+                    {"name":"%s","email":"%s","address":"1 Sort St",\
+                    "dateOfBirth":"1990-01-01","registeredDate":"%s"}"""
+                        .formatted(name, uniqueEmail(), registeredDate)))
+        .andExpect(status().isCreated());
   }
 }
