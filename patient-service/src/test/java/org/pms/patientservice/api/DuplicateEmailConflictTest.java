@@ -23,6 +23,7 @@ class DuplicateEmailConflictTest extends AbstractPatientApiTest {
     mockMvc
         .perform(
             post(PATIENTS)
+                .with(asAdmin())
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(patientJson(email, "1990-01-01", "2024-01-01")))
         .andExpect(status().isConflict());
@@ -38,6 +39,7 @@ class DuplicateEmailConflictTest extends AbstractPatientApiTest {
     mockMvc
         .perform(
             put(PATIENTS + "/" + otherId)
+                .with(asAdmin())
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(patientJson(takenEmail, "1990-01-01", "2024-01-01")))
         .andExpect(status().isConflict());
@@ -52,6 +54,7 @@ class DuplicateEmailConflictTest extends AbstractPatientApiTest {
     mockMvc
         .perform(
             put(PATIENTS + "/" + id)
+                .with(asAdmin())
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(patientJson(email, "1992-03-04", "2024-01-01")))
         .andExpect(status().isOk());

@@ -46,7 +46,11 @@ class ConcurrentDuplicateEmailTest extends AbstractPatientApiTest {
                   ready.countDown();
                   start.await();
                   return mockMvc
-                      .perform(post(PATIENTS).contentType(MediaType.APPLICATION_JSON).content(body))
+                      .perform(
+                          post(PATIENTS)
+                              .with(asAdmin())
+                              .contentType(MediaType.APPLICATION_JSON)
+                              .content(body))
                       .andReturn()
                       .getResponse()
                       .getStatus();

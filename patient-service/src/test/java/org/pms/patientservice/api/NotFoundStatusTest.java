@@ -18,6 +18,7 @@ class NotFoundStatusTest extends AbstractPatientApiTest {
     mockMvc
         .perform(
             put(PATIENTS + "/" + UUID.randomUUID())
+                .with(asAdmin())
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(patientJson(uniqueEmail(), "1990-01-01", "2024-01-01")))
         .andExpect(status().isNotFound());
@@ -26,7 +27,9 @@ class NotFoundStatusTest extends AbstractPatientApiTest {
   @Test
   @DisplayName("DELETE on a nonexistent id returns 404, not 400")
   void deleteNonexistentPatientReturns404() throws Exception {
-    mockMvc.perform(delete(PATIENTS + "/" + UUID.randomUUID())).andExpect(status().isNotFound());
+    mockMvc
+        .perform(delete(PATIENTS + "/" + UUID.randomUUID()).with(asAdmin()))
+        .andExpect(status().isNotFound());
   }
 
   @Test
@@ -34,6 +37,6 @@ class NotFoundStatusTest extends AbstractPatientApiTest {
   void deleteExistingPatientReturns204() throws Exception {
     String id = createPatient(uniqueEmail());
 
-    mockMvc.perform(delete(PATIENTS + "/" + id)).andExpect(status().isNoContent());
+    mockMvc.perform(delete(PATIENTS + "/" + id).with(asAdmin())).andExpect(status().isNoContent());
   }
 }

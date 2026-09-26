@@ -22,6 +22,7 @@ class MalformedDateTest extends AbstractPatientApiTest {
     mockMvc
         .perform(
             post(PATIENTS)
+                .with(asAdmin())
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(patientJson(uniqueEmail(), "not-a-date", "2024-01-01")))
         .andExpect(status().isBadRequest())
@@ -38,6 +39,7 @@ class MalformedDateTest extends AbstractPatientApiTest {
     mockMvc
         .perform(
             post(PATIENTS)
+                .with(asAdmin())
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(patientJson(uniqueEmail(), "1990-01-01", "13/45/9999")))
         .andExpect(status().isBadRequest());
@@ -51,6 +53,7 @@ class MalformedDateTest extends AbstractPatientApiTest {
     mockMvc
         .perform(
             put(PATIENTS + "/" + id)
+                .with(asAdmin())
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(patientJson(uniqueEmail(), "31-02-1990", null)))
         .andExpect(status().isBadRequest());
@@ -63,6 +66,7 @@ class MalformedDateTest extends AbstractPatientApiTest {
         mockMvc
             .perform(
                 post(PATIENTS)
+                    .with(asAdmin())
                     .contentType(MediaType.APPLICATION_JSON)
                     .content(patientJson(uniqueEmail(), "not-a-date", "2024-01-01")))
             .andExpect(status().isBadRequest())

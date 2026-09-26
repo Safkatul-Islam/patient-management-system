@@ -33,7 +33,7 @@ class PaginationTest extends AbstractPatientApiTest {
     long total = patientRepository.count();
 
     mockMvc
-        .perform(get(PATIENTS).param("page", "1").param("size", "2"))
+        .perform(get(PATIENTS).with(asAdmin()).param("page", "1").param("size", "2"))
         .andExpect(status().isOk())
         .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_JSON))
         .andExpect(jsonPath("$.content.length()").value(2))
@@ -47,7 +47,7 @@ class PaginationTest extends AbstractPatientApiTest {
   @DisplayName("page size defaults to 20")
   void defaultPageSizeIs20() throws Exception {
     mockMvc
-        .perform(get(PATIENTS))
+        .perform(get(PATIENTS).with(asAdmin()))
         .andExpect(status().isOk())
         .andExpect(jsonPath("$.page.size").value(20))
         .andExpect(jsonPath("$.page.number").value(0));
@@ -57,7 +57,7 @@ class PaginationTest extends AbstractPatientApiTest {
   @DisplayName("a page size above the maximum is capped at 100")
   void pageSizeIsCappedAt100() throws Exception {
     mockMvc
-        .perform(get(PATIENTS).param("size", "500"))
+        .perform(get(PATIENTS).with(asAdmin()).param("size", "500"))
         .andExpect(status().isOk())
         .andExpect(jsonPath("$.page.size").value(100));
   }
@@ -69,7 +69,7 @@ class PaginationTest extends AbstractPatientApiTest {
     createNamedPatient("Aaron Aardvark", "2024-01-01");
 
     mockMvc
-        .perform(get(PATIENTS))
+        .perform(get(PATIENTS).with(asAdmin()))
         .andExpect(status().isOk())
         .andExpect(jsonPath("$.content[0].name").value("Aaron Aardvark"));
   }
@@ -78,7 +78,7 @@ class PaginationTest extends AbstractPatientApiTest {
   @DisplayName("a negative page number is treated as the first page")
   void negativePageIsFirstPage() throws Exception {
     mockMvc
-        .perform(get(PATIENTS).param("page", "-1").param("size", "5"))
+        .perform(get(PATIENTS).with(asAdmin()).param("page", "-1").param("size", "5"))
         .andExpect(status().isOk())
         .andExpect(jsonPath("$.page.number").value(0))
         .andExpect(jsonPath("$.page.size").value(5));
@@ -88,7 +88,7 @@ class PaginationTest extends AbstractPatientApiTest {
   @DisplayName("a page size of 0 falls back to the default of 20")
   void zeroPageSizeFallsBackToDefault() throws Exception {
     mockMvc
-        .perform(get(PATIENTS).param("size", "0"))
+        .perform(get(PATIENTS).with(asAdmin()).param("size", "0"))
         .andExpect(status().isOk())
         .andExpect(jsonPath("$.page.size").value(20));
   }
@@ -106,6 +106,7 @@ class PaginationTest extends AbstractPatientApiTest {
     mockMvc
         .perform(
             get(PATIENTS)
+                .with(asAdmin())
                 .param("sort", "registeredDate,desc")
                 .param("sort", "name,asc")
                 .param("size", "3"))
@@ -119,7 +120,8 @@ class PaginationTest extends AbstractPatientApiTest {
   @DisplayName("multiple sort parameters with one outside the allow-list are a 400 problem")
   void multipleSortParametersWithOneDisallowedIs400() throws Exception {
     mockMvc
-        .perform(get(PATIENTS).param("sort", "name,asc").param("sort", "address,desc"))
+        .perform(
+            get(PATIENTS).with(asAdmin()).param("sort", "name,asc").param("sort", "address,desc"))
         .andExpect(status().isBadRequest())
         .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON))
         .andExpect(jsonPath("$.title").value("Invalid sort parameter"));
@@ -132,7 +134,11 @@ class PaginationTest extends AbstractPatientApiTest {
 
     String response =
         mockMvc
-            .perform(get(PATIENTS).param("sort", "dateOfBirth,desc").param("size", "100"))
+            .perform(
+                get(PATIENTS)
+                    .with(asAdmin())
+                    .param("sort", "dateOfBirth,desc")
+                    .param("size", "100"))
             .andExpect(status().isOk())
             .andReturn()
             .getResponse()
@@ -147,7 +153,7 @@ class PaginationTest extends AbstractPatientApiTest {
   @DisplayName("sorting by a property outside the allow-list is a 400 problem, not a 500")
   void sortOutsideAllowListIs400() throws Exception {
     mockMvc
-        .perform(get(PATIENTS).param("sort", "address"))
+        .perform(get(PATIENTS).with(asAdmin()).param("sort", "address"))
         .andExpect(status().isBadRequest())
         .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON))
         .andExpect(jsonPath("$.title").value("Invalid sort parameter"));
@@ -157,7 +163,7 @@ class PaginationTest extends AbstractPatientApiTest {
   @DisplayName("sorting by a property the entity does not have is a 400 problem, not a 500")
   void sortByUnknownPropertyIs400() throws Exception {
     mockMvc
-        .perform(get(PATIENTS).param("sort", "doesNotExist,asc"))
+        .perform(get(PATIENTS).with(asAdmin()).param("sort", "doesNotExist,asc"))
         .andExpect(status().isBadRequest())
         .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON))
         .andExpect(jsonPath("$.title").value("Invalid sort parameter"));
@@ -167,6 +173,7 @@ class PaginationTest extends AbstractPatientApiTest {
     mockMvc
         .perform(
             post(PATIENTS)
+                .with(asAdmin())
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(
                     """
