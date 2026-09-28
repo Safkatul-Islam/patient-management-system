@@ -133,15 +133,24 @@ public class BoundedJwkSource implements Function<SignedJWT, Flux<JWK>> {
       warm = cached != null;
       inFlight = null;
     }
-    // Type only: causes can carry internal host names; no token content ever reaches here.
+    // Types only (messages can quote response bodies); no token content ever reaches here.
     log.warn(
-        "JWK set fetch failed ({}); {}",
+        "JWK set fetch failed ({}, root cause {}); {}",
         error.getClass().getSimpleName(),
+        rootCause(error).getClass().getName(),
         warm ? "keeping the cached key set" : "no key set cached yet");
     outcome.tryEmitError(
         error instanceof JwksUnavailableException
             ? error
             : new JwksUnavailableException("JWK set fetch failed", error));
+  }
+
+  private static Throwable rootCause(Throwable error) {
+    Throwable root = error;
+    for (int depth = 0; depth < 16 && root.getCause() != null && root.getCause() != root; depth++) {
+      root = root.getCause();
+    }
+    return root;
   }
 
   private static List<JWK> select(JWKSet set, String kid) {
