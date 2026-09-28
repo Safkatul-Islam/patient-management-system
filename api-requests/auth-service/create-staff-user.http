@@ -1,5 +1,5 @@
 ### ADMIN only: create a staff account (role: ADMIN, DOCTOR, NURSE or BILLING_STAFF)
-POST http://localhost:4005/auth/admin/users
+POST http://localhost:4004/auth/admin/users
 Authorization: Bearer <admin-access-token>
 Content-Type: application/json
 

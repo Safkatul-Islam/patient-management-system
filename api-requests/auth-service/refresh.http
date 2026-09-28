@@ -1,6 +1,6 @@
 ### Exchange a refresh token for a new pair. The presented token is revoked;
 ### presenting it again revokes all of that user's refresh tokens.
-POST http://localhost:4005/auth/refresh
+POST http://localhost:4004/auth/refresh
 Content-Type: application/json
 
 {
