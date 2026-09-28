@@ -1,0 +1,8 @@
+### Get one patient through the API gateway (run create-patient.http first to set patientId)
+# Staff tokens may read any record. A PATIENT token may read only its own record: any other id
+# is a 403, whether or not that record exists. {{accessToken}} comes from logging in via
+# api-requests/gateway/.
+GET http://localhost:4004/api/v1/patients/{{patientId}}
+Authorization: Bearer {{accessToken}}
+
+###

@@ -1,5 +1,8 @@
-### Update an existing patient entity (run create-patient.http first to set patientId)
-PUT http://localhost:4000/api/v1/patients/{{patientId}}
+### Update a patient through the API gateway (run create-patient.http first to set patientId)
+# Needs an ADMIN, DOCTOR or NURSE access token; {{accessToken}} comes from logging in via
+# api-requests/gateway/.
+PUT http://localhost:4004/api/v1/patients/{{patientId}}
+Authorization: Bearer {{accessToken}}
 Content-Type: application/json
 
 {

@@ -1,7 +1,11 @@
-### First page of patients (default size 20, sorted by name)
+### First page of patients through the API gateway (default size 20, sorted by name)
+# Staff only (ADMIN, DOCTOR, NURSE, BILLING_STAFF); a PATIENT token gets a 403.
+# {{accessToken}} comes from logging in via api-requests/gateway/.
 # Response shape: {"content": [...], "page": {"size", "number", "totalElements", "totalPages"}}
-GET http://localhost:4000/api/v1/patients
+GET http://localhost:4004/api/v1/patients
+Authorization: Bearer {{accessToken}}
 
 ### Second page of 5 patients, most recently registered first
 # Sortable properties: name, email, dateOfBirth, registeredDate. Sizes above 100 are capped.
-GET http://localhost:4000/api/v1/patients?page=1&size=5&sort=registeredDate,desc
+GET http://localhost:4004/api/v1/patients?page=1&size=5&sort=registeredDate,desc
+Authorization: Bearer {{accessToken}}
