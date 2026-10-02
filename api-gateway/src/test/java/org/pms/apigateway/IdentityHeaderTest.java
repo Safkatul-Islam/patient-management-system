@@ -18,6 +18,8 @@ import org.springframework.boot.test.web.server.LocalServerPort;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.reactive.server.WebTestClient;
+import reactor.core.publisher.Mono;
+import reactor.netty.ByteBufFlux;
 import reactor.netty.http.client.HttpClient;
 import tools.jackson.databind.json.JsonMapper;
 
@@ -90,6 +92,82 @@ class IdentityHeaderTest extends AbstractGatewayTest {
     assertThat(headers.get("x-user-roles")).containsExactly("PATIENT");
     assertThat(headers.get("x-patient-id")).containsExactly(patientId.toString());
     assertThat(headers.get("x-user-id")).containsExactly(userId.toString());
+  }
+
+  @Test
+  @DisplayName("Underscore and mixed underscore/hyphen identity header variants are all removed")
+  void underscoreVariantsRemoved() {
+    String body =
+        HttpClient.create()
+            .headers(
+                headers ->
+                    headers
+                        .add(HttpHeaders.AUTHORIZATION, bearer(patientToken()))
+                        .add("X_User_Id", UUID.randomUUID().toString())
+                        .add("x_user_roles", "ADMIN")
+                        .add("X_USER_ROLES", "ADMIN")
+                        .add("X_Patient_Id", UUID.randomUUID().toString())
+                        .add("x_patient_id", UUID.randomUUID().toString())
+                        .add("X-User_Id", UUID.randomUUID().toString())
+                        .add("X_User-Roles", "ADMIN")
+                        .add("X-Patient_Id", UUID.randomUUID().toString())
+                        .add("X_User_Anything", "spoofed"))
+            .get()
+            .uri("http://127.0.0.1:" + port + PATIENTS)
+            .responseSingle(
+                (response, content) -> {
+                  assertThat(response.status().code()).isEqualTo(200);
+                  return content.asString();
+                })
+            .block(Duration.ofSeconds(10));
+
+    @SuppressWarnings("unchecked")
+    Map<String, List<String>> headers =
+        (Map<String, List<String>>)
+            JsonMapper.builder().build().readValue(body, Map.class).get("headers");
+    // Only the gateway's verified, hyphenated headers remain.
+    assertThat(headers.keySet())
+        .filteredOn(
+            name ->
+                name.replace('_', '-').startsWith("x-user-")
+                    || name.replace('_', '-').equals("x-patient-id"))
+        .containsExactlyInAnyOrder("x-user-id", "x-user-roles", "x-patient-id");
+    assertThat(headers.get("x-user-id")).containsExactly(userId.toString());
+    assertThat(headers.get("x-user-roles")).containsExactly("PATIENT");
+    assertThat(headers.get("x-patient-id")).containsExactly(patientId.toString());
+  }
+
+  @Test
+  @DisplayName("Underscore identity header variants are stripped on public routes too")
+  void underscoreVariantsRemovedOnPublicRoute() {
+    String body =
+        HttpClient.create()
+            .headers(
+                headers ->
+                    headers
+                        .add("Content-Type", "application/json")
+                        .add("X_User_Id", UUID.randomUUID().toString())
+                        .add("x_user_roles", "ADMIN")
+                        .add("X_Patient_Id", UUID.randomUUID().toString()))
+            .post()
+            .uri("http://127.0.0.1:" + port + "/auth/login")
+            .send(ByteBufFlux.fromString(Mono.just("{\"email\":\"dr.example@pms.test\"}")))
+            .responseSingle(
+                (response, content) -> {
+                  assertThat(response.status().code()).isEqualTo(200);
+                  return content.asString();
+                })
+            .block(Duration.ofSeconds(10));
+
+    @SuppressWarnings("unchecked")
+    Map<String, List<String>> headers =
+        (Map<String, List<String>>)
+            JsonMapper.builder().build().readValue(body, Map.class).get("headers");
+    assertThat(headers.keySet())
+        .noneMatch(
+            name ->
+                name.replace('_', '-').startsWith("x-user-")
+                    || name.replace('_', '-').equals("x-patient-id"));
   }
 
   @Test

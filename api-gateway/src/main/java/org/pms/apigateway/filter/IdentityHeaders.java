@@ -25,10 +25,13 @@ public final class IdentityHeaders {
 
   /**
    * Whether a header belongs to the reserved identity namespace ({@code X-User-*} or {@code
-   * X-Patient-Id}, any letter case) and so may only ever be set by the gateway.
+   * X-Patient-Id}) and so may only ever be set by the gateway. Matching ignores letter case and
+   * treats {@code _} as {@code -}: some servers and frameworks (CGI-style environments, nginx with
+   * underscores enabled, ...) map {@code X_User_Id} onto the same name as {@code X-User-Id}, so
+   * every such spelling is stripped too.
    */
   public static boolean isReserved(String headerName) {
-    String name = headerName.toLowerCase(Locale.ROOT);
+    String name = headerName.toLowerCase(Locale.ROOT).replace('_', '-');
     return name.startsWith(USER_PREFIX) || name.equals(PATIENT_ID_LOWER);
   }
 }
