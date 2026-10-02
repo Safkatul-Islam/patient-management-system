@@ -1,12 +1,8 @@
 package org.pms.apigateway.security;
 
-import java.util.ArrayList;
-import java.util.EnumSet;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 import java.util.UUID;
-import java.util.stream.Collectors;
 import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.security.oauth2.server.resource.InvalidBearerTokenException;
 
@@ -15,21 +11,16 @@ import org.springframework.security.oauth2.server.resource.InvalidBearerTokenExc
  * been verified, and checked against the identity header contract before anything is forwarded.
  *
  * @param userId the {@code sub} claim
- * @param roles the {@code roles} claim, in token order
- * @param patientId the {@code patientId} claim; non-null if and only if {@code roles} contains
- *     PATIENT
+ * @param role the single role in the {@code roles} claim (V1 contract: exactly one)
+ * @param patientId the {@code patientId} claim; non-null if and only if {@code role} is PATIENT
  */
-public record VerifiedIdentity(UUID userId, List<Role> roles, UUID patientId) {
+public record VerifiedIdentity(UUID userId, Role role, UUID patientId) {
 
   public static final String ROLES_CLAIM = "roles";
   public static final String PATIENT_ID_CLAIM = "patientId";
 
   // Deliberately generic: the reason a token was rejected is never disclosed or logged.
   private static final String INVALID = "Invalid token";
-
-  public VerifiedIdentity {
-    roles = List.copyOf(roles);
-  }
 
   /**
    * Extracts and validates the identity claims.
@@ -40,19 +31,18 @@ public record VerifiedIdentity(UUID userId, List<Role> roles, UUID patientId) {
   public static VerifiedIdentity from(Jwt jwt) {
     Map<String, Object> claims = jwt.getClaims();
     UUID userId = canonicalUuid(jwt.getSubject());
-    List<Role> roles = roles(claims.get(ROLES_CLAIM));
+    Role role = singleRole(claims.get(ROLES_CLAIM));
     UUID patientId =
         claims.containsKey(PATIENT_ID_CLAIM) ? canonicalUuid(claims.get(PATIENT_ID_CLAIM)) : null;
-    boolean patient = roles.contains(Role.PATIENT);
-    if (patient != (patientId != null)) {
+    if ((role == Role.PATIENT) != (patientId != null)) {
       throw invalid();
     }
-    return new VerifiedIdentity(userId, roles, patientId);
+    return new VerifiedIdentity(userId, role, patientId);
   }
 
-  /** The {@code X-User-Roles} value: role names joined with commas. */
+  /** The {@code X-User-Roles} value: the single role name. */
   public String rolesHeaderValue() {
-    return roles.stream().map(Role::name).collect(Collectors.joining(","));
+    return role.name();
   }
 
   /** Only the lowercase canonical form is accepted, so the forwarded value is unambiguous. */
@@ -71,24 +61,16 @@ public record VerifiedIdentity(UUID userId, List<Role> roles, UUID patientId) {
     }
   }
 
-  private static List<Role> roles(Object claim) {
-    if (!(claim instanceof List<?> values) || values.isEmpty()) {
+  /**
+   * auth-service issues exactly one role, as a one-element JSON array. Anything else (empty, two or
+   * more, duplicates, unknown or non-string values, a bare string) is rejected rather than
+   * forwarded as a multi-role header downstream services were never designed for.
+   */
+  private static Role singleRole(Object claim) {
+    if (!(claim instanceof List<?> values) || values.size() != 1) {
       throw invalid();
     }
-    List<Role> roles = new ArrayList<>(values.size());
-    Set<Role> seen = EnumSet.noneOf(Role.class);
-    for (Object value : values) {
-      Role role = role(value);
-      if (!seen.add(role)) {
-        throw invalid();
-      }
-      roles.add(role);
-    }
-    return roles;
-  }
-
-  private static Role role(Object value) {
-    if (value instanceof String name) {
+    if (values.get(0) instanceof String name) {
       for (Role role : Role.values()) {
         if (role.name().equals(name)) {
           return role;

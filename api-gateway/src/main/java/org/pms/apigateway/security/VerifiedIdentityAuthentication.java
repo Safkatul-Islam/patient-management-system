@@ -1,5 +1,6 @@
 package org.pms.apigateway.security;
 
+import java.util.List;
 import org.springframework.security.authentication.AbstractAuthenticationToken;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 
@@ -12,10 +13,7 @@ public class VerifiedIdentityAuthentication extends AbstractAuthenticationToken 
   private final VerifiedIdentity identity;
 
   public VerifiedIdentityAuthentication(VerifiedIdentity identity) {
-    super(
-        identity.roles().stream()
-            .map(role -> new SimpleGrantedAuthority("ROLE_" + role.name()))
-            .toList());
+    super(List.of(new SimpleGrantedAuthority("ROLE_" + identity.role().name())));
     this.identity = identity;
     setAuthenticated(true);
   }

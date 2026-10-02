@@ -282,7 +282,10 @@ class JwtAttackTest extends AbstractGatewayTest {
         "roles-duplicate",
         "patient-without-patient-id",
         "patient-id-without-patient",
-        "patient-id-not-uuid"
+        "patient-id-not-uuid",
+        "two-roles",
+        "patient-and-admin-with-patient-id",
+        "role-not-string"
       })
   @DisplayName("Malformed identity claims are rejected before forwarding")
   void malformedIdentityClaims(String variant) {
@@ -300,6 +303,12 @@ class JwtAttackTest extends AbstractGatewayTest {
       case "patient-id-without-patient" -> claims.claim("patientId", UUID.randomUUID().toString());
       case "patient-id-not-uuid" ->
           claims.claim("roles", List.of("PATIENT")).claim("patientId", "42");
+      case "two-roles" -> claims.claim("roles", List.of("DOCTOR", "NURSE"));
+      case "patient-and-admin-with-patient-id" ->
+          claims
+              .claim("roles", List.of("PATIENT", "ADMIN"))
+              .claim("patientId", UUID.randomUUID().toString());
+      case "role-not-string" -> claims.claim("roles", List.of(42));
       default -> throw new IllegalArgumentException(variant);
     }
     assertRejected(getPatients(bearer(Tokens.sign(TestKeys.PRIMARY, claims.build()))));
