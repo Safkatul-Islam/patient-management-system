@@ -79,6 +79,38 @@ class BoundedJwkSourceTest {
   }
 
   @Test
+  @DisplayName("A fetcher that throws synchronously cannot wedge the source")
+  void synchronousFetcherThrowDoesNotWedge() {
+    AtomicInteger calls = new AtomicInteger();
+    Supplier<Mono<JWKSet>> throwsOnce =
+        () -> {
+          if (calls.incrementAndGet() == 1) {
+            throw new IllegalStateException("fetcher blew up before returning a Mono");
+          }
+          return Mono.just(new JWKSet(TestKeys.PRIMARY.toPublicJWK()));
+        };
+    BoundedJwkSource wedgeCandidate = new BoundedJwkSource(throwsOnce, clock, COOLDOWN);
+
+    // Cold cache, failed attempt: the cold-failure error, not a hang.
+    StepVerifier.create(wedgeCandidate.apply(token(TestKeys.PRIMARY_KID)))
+        .expectError(JwksUnavailableException.class)
+        .verify(Duration.ofSeconds(5));
+    // Within the cooldown: still the cold-failure error, without another attempt.
+    StepVerifier.create(wedgeCandidate.apply(token(TestKeys.PRIMARY_KID)))
+        .expectError(JwksUnavailableException.class)
+        .verify(Duration.ofSeconds(5));
+    assertThat(calls.get()).isEqualTo(1);
+
+    // After the cooldown the working fetcher is used and succeeds: nothing was left in flight.
+    clock.advance(COOLDOWN.plusSeconds(1));
+    StepVerifier.create(wedgeCandidate.apply(token(TestKeys.PRIMARY_KID)))
+        .expectNextCount(1)
+        .expectComplete()
+        .verify(Duration.ofSeconds(5));
+    assertThat(calls.get()).isEqualTo(2);
+  }
+
+  @Test
   @DisplayName("Warm cache and failed refetch: known keys still served")
   void warmFailureKeepsCache() {
     warm();

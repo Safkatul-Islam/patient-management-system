@@ -73,8 +73,13 @@ public class BoundedJwkSource implements Function<SignedJWT, Flux<JWK>> {
     return Mono.defer(() -> keysFor(kid)).flatMapMany(Flux::fromIterable);
   }
 
+  // Invariant: code run while holding `lock` only reads and writes the three fields above. It never
+  // blocks, never calls the fetcher and never subscribes to anything, so the lock is held for
+  // nanoseconds on Netty event-loop threads and cannot deadlock with the fetch callbacks (which
+  // take it again).
   private Mono<List<JWK>> keysFor(String kid) {
     Mono<JWKSet> refresh;
+    Sinks.One<JWKSet> started = null;
     boolean warm;
     synchronized (lock) {
       warm = cached != null;
@@ -84,7 +89,19 @@ public class BoundedJwkSource implements Function<SignedJWT, Flux<JWK>> {
           return Mono.just(keys);
         }
       }
-      refresh = refreshIfAllowed();
+      if (inFlight != null) {
+        refresh = inFlight; // join the attempt already running
+      } else if (coolingDown()) {
+        refresh = null;
+      } else {
+        lastAttempt = clock.instant();
+        started = Sinks.one();
+        inFlight = started.asMono();
+        refresh = inFlight;
+      }
+    }
+    if (started != null) {
+      startFetch(started); // outside the lock, see the invariant above
     }
     if (refresh == null) {
       return warm
@@ -97,25 +114,22 @@ public class BoundedJwkSource implements Function<SignedJWT, Flux<JWK>> {
         .onErrorResume(ex -> warm ? Mono.just(List.of()) : Mono.error(ex));
   }
 
-  /** Called with {@code lock} held. Returns the shared refresh, or null while cooling down. */
-  private Mono<JWKSet> refreshIfAllowed() {
-    if (inFlight != null) {
-      return inFlight;
-    }
-    Instant now = clock.instant();
-    if (lastAttempt != null && now.isBefore(lastAttempt.plus(cooldown))) {
-      return null;
-    }
-    lastAttempt = now;
-    // Subscribed here, once, rather than by the first caller: every caller of this attempt gets
-    // the same outcome, and a cancelled caller cannot leave the attempt stuck in flight.
-    Sinks.One<JWKSet> outcome = Sinks.one();
-    inFlight = outcome.asMono();
-    fetcher
-        .get()
+  /** Called with {@code lock} held. */
+  private boolean coolingDown() {
+    return lastAttempt != null && clock.instant().isBefore(lastAttempt.plus(cooldown));
+  }
+
+  /**
+   * Runs one fetch attempt and always completes {@code outcome} and clears {@code inFlight}: {@code
+   * Mono.defer} turns a fetcher that throws synchronously (or returns null) into an error signal,
+   * so an attempt can never be left in flight forever. Subscribed here, once, rather than by the
+   * first caller, so every caller of this attempt gets the same outcome and a cancelled caller
+   * cannot strand it.
+   */
+  private void startFetch(Sinks.One<JWKSet> outcome) {
+    Mono.defer(fetcher)
         .switchIfEmpty(Mono.error(() -> new JwksUnavailableException("No JWK set returned")))
         .subscribe(set -> onFetched(set, outcome), error -> onFetchFailed(error, outcome));
-    return outcome.asMono();
   }
 
   private void onFetched(JWKSet set, Sinks.One<JWKSet> outcome) {
