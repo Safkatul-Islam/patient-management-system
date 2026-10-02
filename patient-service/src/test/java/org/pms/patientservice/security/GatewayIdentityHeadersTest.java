@@ -4,7 +4,6 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import java.util.Map;
-import java.util.Set;
 import java.util.UUID;
 import java.util.function.Consumer;
 import java.util.stream.Stream;
@@ -13,6 +12,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.MethodSource;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.pms.patientservice.security.GatewayIdentityHeaders.MalformedIdentityHeadersException;
 import org.springframework.mock.web.MockHttpServletRequest;
 
@@ -31,7 +31,7 @@ class GatewayIdentityHeadersTest {
         .hasValueSatisfying(
             identity -> {
               assertThat(identity.userId()).isEqualTo(UUID.fromString(USER_ID));
-              assertThat(identity.roles()).containsExactly(Role.NURSE);
+              assertThat(identity.role()).isEqualTo(Role.NURSE);
               assertThat(identity.patientId()).isNull();
               assertThat(identity.isPatient()).isFalse();
             });
@@ -47,21 +47,33 @@ class GatewayIdentityHeadersTest {
     assertThat(GatewayIdentityHeaders.parse(request))
         .hasValueSatisfying(
             identity -> {
-              assertThat(identity.roles()).containsExactly(Role.PATIENT);
+              assertThat(identity.role()).isEqualTo(Role.PATIENT);
               assertThat(identity.patientId()).isEqualTo(UUID.fromString(PATIENT_ID));
               assertThat(identity.isPatient()).isTrue();
             });
   }
 
-  @Test
-  @DisplayName("several comma-separated roles are all parsed; a repeated role is harmless")
-  void parsesSeveralRoles() {
-    MockHttpServletRequest request =
-        request(Map.of("X-User-Id", USER_ID, "X-User-Roles", "DOCTOR,ADMIN,DOCTOR"));
+  @ParameterizedTest(name = "{0}")
+  @ValueSource(strings = {"DOCTOR,ADMIN", "DOCTOR,DOCTOR", "DOCTOR,ADMIN,DOCTOR"})
+  @DisplayName("a list of roles is rejected, even of duplicates: exactly one role is allowed")
+  void rejectsSeveralRoles(String roles) {
+    MockHttpServletRequest request = request(Map.of("X-User-Id", USER_ID, "X-User-Roles", roles));
 
-    assertThat(GatewayIdentityHeaders.parse(request))
-        .hasValueSatisfying(
-            identity -> assertThat(identity.roles()).isEqualTo(Set.of(Role.DOCTOR, Role.ADMIN)));
+    assertThatThrownBy(() -> GatewayIdentityHeaders.parse(request))
+        .isInstanceOf(MalformedIdentityHeadersException.class)
+        .hasMessage("X-User-Roles must be exactly one known role");
+  }
+
+  @Test
+  @DisplayName("PATIENT combined with a staff role is rejected, even with a valid patient id")
+  void rejectsPatientCombinedWithStaffRole() {
+    MockHttpServletRequest request =
+        request(
+            Map.of(
+                "X-User-Id", USER_ID, "X-User-Roles", "PATIENT,ADMIN", "X-Patient-Id", PATIENT_ID));
+
+    assertThatThrownBy(() -> GatewayIdentityHeaders.parse(request))
+        .isInstanceOf(MalformedIdentityHeadersException.class);
   }
 
   @Test

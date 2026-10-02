@@ -11,7 +11,6 @@ import static org.mockito.Mockito.when;
 import java.time.LocalDate;
 import java.util.List;
 import java.util.Optional;
-import java.util.Set;
 import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -226,7 +225,7 @@ class PatientServiceTest {
 
     PatientResponseDto found =
         patientService.getPatient(
-            existing.getId(), new GatewayIdentity(UUID.randomUUID(), Set.of(role), null));
+            existing.getId(), new GatewayIdentity(UUID.randomUUID(), role, null));
 
     assertThat(found.getId()).isEqualTo(existing.getId().toString());
   }
@@ -239,12 +238,12 @@ class PatientServiceTest {
     assertThatThrownBy(
             () ->
                 patientService.getPatient(
-                    id, new GatewayIdentity(UUID.randomUUID(), Set.of(Role.DOCTOR), null)))
+                    id, new GatewayIdentity(UUID.randomUUID(), Role.DOCTOR, null)))
         .isInstanceOf(PatientNotFoundException.class);
   }
 
   private static GatewayIdentity patient(UUID ownPatientId) {
-    return new GatewayIdentity(UUID.randomUUID(), Set.of(Role.PATIENT), ownPatientId);
+    return new GatewayIdentity(UUID.randomUUID(), Role.PATIENT, ownPatientId);
   }
 
   private static Patient existingPatient() {

@@ -22,7 +22,7 @@ import org.springframework.web.filter.OncePerRequestFilter;
  * GatewayIdentityHeaders}). The token is already verified upstream, so there is no credential left
  * to check here: a well-formed set of headers becomes an authenticated {@link
  * PreAuthenticatedAuthenticationToken} whose principal is the {@link GatewayIdentity} and whose
- * authorities are {@code ROLE_<role>}.
+ * only authority is {@code ROLE_<role>}.
  *
  * <p>Missing or malformed headers leave the request unauthenticated; the authorization rules then
  * reject it through the entry point with a 401. This filter never writes a response itself.
@@ -55,9 +55,7 @@ public class GatewayIdentityFilter extends OncePerRequestFilter {
 
   private void authenticate(GatewayIdentity identity) {
     List<GrantedAuthority> authorities =
-        identity.roles().stream()
-            .<GrantedAuthority>map(role -> new SimpleGrantedAuthority(ROLE_PREFIX + role.name()))
-            .toList();
+        List.of(new SimpleGrantedAuthority(ROLE_PREFIX + identity.role().name()));
     SecurityContext context = securityContextHolderStrategy.createEmptyContext();
     context.setAuthentication(
         new PreAuthenticatedAuthenticationToken(identity, NO_CREDENTIALS, authorities));

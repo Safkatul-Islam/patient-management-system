@@ -1,6 +1,7 @@
 package org.pms.patientservice.api;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
@@ -68,6 +69,9 @@ class GatewayIdentityAuthenticationTest extends AbstractPatientApiTest {
         identity("unknown role", USER_ID, UNKNOWN_ROLE, null),
         identity("empty roles", USER_ID, "", null),
         identity("roles missing", USER_ID, null, null),
+        identity("two staff roles", USER_ID, "DOCTOR,ADMIN", null),
+        identity("a role repeated", USER_ID, "DOCTOR,DOCTOR", null),
+        identity("PATIENT plus a staff role", USER_ID, "PATIENT,ADMIN", PATIENT_ID),
         identity("user id missing", null, "ADMIN", null),
         identity("PATIENT without X-Patient-Id", USER_ID, "PATIENT", null),
         identity("X-Patient-Id without PATIENT", USER_ID, "DOCTOR", PATIENT_ID),
@@ -143,6 +147,43 @@ class GatewayIdentityAuthenticationTest extends AbstractPatientApiTest {
         .andExpect(status().isOk());
   }
 
+  /**
+   * V1 callers hold exactly one role. A combined PATIENT,ADMIN identity must not borrow the staff
+   * role to list patients or read another record; it is not authenticated at all.
+   */
+  @Test
+  @DisplayName("PATIENT combined with ADMIN is a 401 on the list and on another patient's record")
+  void patientCombinedWithAdminIsUnauthenticated() throws Exception {
+    String ownId = createPatient(uniqueEmail());
+    String otherId = createPatient(uniqueEmail());
+    RequestPostProcessor patientAndAdmin = roles("PATIENT,ADMIN", ownId);
+
+    mockMvc
+        .perform(get(PATIENTS).with(patientAndAdmin))
+        .andExpect(status().isUnauthorized())
+        .andExpect(header().string(HttpHeaders.WWW_AUTHENTICATE, "Bearer"))
+        .andExpect(jsonPath("$.detail").value(DETAIL))
+        .andExpect(jsonPath("$.content").doesNotExist());
+    mockMvc
+        .perform(get(PATIENTS + "/" + otherId).with(patientAndAdmin))
+        .andExpect(status().isUnauthorized())
+        .andExpect(jsonPath("$.detail").value(DETAIL))
+        .andExpect(jsonPath("$.email").doesNotExist());
+  }
+
+  @Test
+  @DisplayName("DOCTOR combined with ADMIN is a 401 on delete, and the record survives")
+  void doctorCombinedWithAdminCannotDelete() throws Exception {
+    String id = createPatient(uniqueEmail());
+
+    mockMvc
+        .perform(delete(PATIENTS + "/" + id).with(roles("DOCTOR,ADMIN", null)))
+        .andExpect(status().isUnauthorized())
+        .andExpect(header().string(HttpHeaders.WWW_AUTHENTICATE, "Bearer"))
+        .andExpect(jsonPath("$.detail").value(DETAIL));
+    mockMvc.perform(get(PATIENTS + "/" + id).with(asAdmin())).andExpect(status().isOk());
+  }
+
   @Test
   @DisplayName("unlisted paths are denied: 401 without an identity, 403 even for an ADMIN")
   void unlistedPathsAreDenied() throws Exception {
@@ -152,6 +193,18 @@ class GatewayIdentityAuthenticationTest extends AbstractPatientApiTest {
         .andExpect(status().isForbidden())
         .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON));
     mockMvc.perform(get("/api/v2/patients").with(asAdmin())).andExpect(status().isForbidden());
+  }
+
+  /** A fresh user id with the given raw X-User-Roles value and optional X-Patient-Id. */
+  private static RequestPostProcessor roles(String roles, String patientId) {
+    return request -> {
+      request.addHeader(USER_ID_HEADER, UUID.randomUUID().toString());
+      request.addHeader(USER_ROLES_HEADER, roles);
+      if (patientId != null) {
+        request.addHeader(PATIENT_ID_HEADER, patientId);
+      }
+      return request;
+    };
   }
 
   private static Arguments identity(

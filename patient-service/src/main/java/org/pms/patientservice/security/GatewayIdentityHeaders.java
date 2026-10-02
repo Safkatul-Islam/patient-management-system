@@ -2,11 +2,9 @@ package org.pms.patientservice.security;
 
 import jakarta.servlet.http.HttpServletRequest;
 import java.util.Arrays;
-import java.util.EnumSet;
 import java.util.Enumeration;
 import java.util.Map;
 import java.util.Optional;
-import java.util.Set;
 import java.util.UUID;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
@@ -18,14 +16,16 @@ import java.util.stream.Collectors;
  *
  * <p>Parsing is strict: anything but a complete, well-formed set is rejected as a whole. Rejection
  * reasons name headers, never their values.
+ *
+ * <p>{@code X-User-Roles} must hold exactly one role name (the V1 contract). A list, even of
+ * duplicates, is rejected rather than merged: merging would let e.g. {@code PATIENT,ADMIN} pass
+ * staff-only rules while still carrying a patient id.
  */
 final class GatewayIdentityHeaders {
 
   static final String USER_ID = "X-User-Id";
   static final String USER_ROLES = "X-User-Roles";
   static final String PATIENT_ID = "X-Patient-Id";
-
-  private static final String ROLE_SEPARATOR = ",";
 
   /** {@link UUID#fromString} also accepts non-canonical forms such as {@code 1-1-1-1-1}. */
   private static final Pattern CANONICAL_UUID =
@@ -44,15 +44,15 @@ final class GatewayIdentityHeaders {
    */
   static Optional<GatewayIdentity> parse(HttpServletRequest request) {
     String userId = singleValue(request, USER_ID);
-    String roles = singleValue(request, USER_ROLES);
+    String role = singleValue(request, USER_ROLES);
     String patientId = singleValue(request, PATIENT_ID);
-    if (userId == null && roles == null && patientId == null) {
+    if (userId == null && role == null && patientId == null) {
       return Optional.empty();
     }
 
     UUID parsedUserId = parseUuid(require(userId, USER_ID), USER_ID);
-    Set<Role> parsedRoles = parseRoles(require(roles, USER_ROLES));
-    boolean isPatient = parsedRoles.contains(Role.PATIENT);
+    Role parsedRole = parseRole(require(role, USER_ROLES));
+    boolean isPatient = parsedRole == Role.PATIENT;
     if (isPatient && patientId == null) {
       throw new MalformedIdentityHeadersException(PATIENT_ID + " is required for the PATIENT role");
     }
@@ -62,7 +62,7 @@ final class GatewayIdentityHeaders {
     }
     UUID parsedPatientId = isPatient ? parseUuid(patientId, PATIENT_ID) : null;
 
-    return Optional.of(new GatewayIdentity(parsedUserId, parsedRoles, parsedPatientId));
+    return Optional.of(new GatewayIdentity(parsedUserId, parsedRole, parsedPatientId));
   }
 
   /** The header's only value, or null when absent. Repeated headers are ambiguous and rejected. */
@@ -92,19 +92,16 @@ final class GatewayIdentityHeaders {
     return UUID.fromString(value);
   }
 
-  /** Comma-separated exact role names; no whitespace, no blanks (duplicates are harmless). */
-  private static Set<Role> parseRoles(String value) {
-    Set<Role> roles = EnumSet.noneOf(Role.class);
-    // A negative limit keeps trailing empty entries, so "ADMIN," is rejected as a blank role.
-    for (String name : value.split(ROLE_SEPARATOR, -1)) {
-      Role role = ROLES_BY_NAME.get(name);
-      if (role == null) {
-        throw new MalformedIdentityHeadersException(
-            USER_ROLES + " contains a blank or unknown role");
-      }
-      roles.add(role);
+  /**
+   * Exactly one exact role name: no whitespace, no blanks, no list. Anything that is not a single
+   * known name (including "DOCTOR,DOCTOR" or "PATIENT,ADMIN") is rejected.
+   */
+  private static Role parseRole(String value) {
+    Role role = ROLES_BY_NAME.get(value);
+    if (role == null) {
+      throw new MalformedIdentityHeadersException(USER_ROLES + " must be exactly one known role");
     }
-    return roles;
+    return role;
   }
 
   /** Why a set of identity headers was rejected. The message never contains a header value. */
