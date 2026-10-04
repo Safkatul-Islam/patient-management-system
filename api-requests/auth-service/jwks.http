@@ -1,4 +1,6 @@
-### Public key set used to verify access tokens
+### Public key set used to verify access tokens.
+### Direct to auth-service (4005): JWKS is deliberately not routed through the gateway,
+### which answers 401 for this path.
 GET http://localhost:4005/.well-known/jwks.json
 
 ###

@@ -1,0 +1,37 @@
+### Log in through the gateway (public route; forwarded to auth-service unchanged).
+### Stores the tokens for the requests below. Synthetic account only.
+POST http://localhost:4004/auth/login
+Content-Type: application/json
+
+{
+  "email": "dr.example@pms.test",
+  "password": "<password>"
+}
+
+> {%
+  client.global.set("accessToken", response.body.accessToken);
+  client.global.set("refreshToken", response.body.refreshToken);
+%}
+
+### Protected route: the gateway verifies the token, removes Authorization and forwards the
+### verified identity (X-User-Id, X-User-Roles, X-Patient-Id for PATIENT) to patient-service.
+GET http://localhost:4004/api/v1/patients
+Authorization: Bearer {{accessToken}}
+
+### Without a token: 401 problem+json from the gateway; patient-service is never called.
+GET http://localhost:4004/api/v1/patients
+
+### Spoofed identity headers are stripped: patient-service only sees the verified values.
+GET http://localhost:4004/api/v1/patients
+Authorization: Bearer {{accessToken}}
+X-User-Roles: ADMIN
+X-User-Id: 00000000-0000-4000-8000-000000000099
+
+### Unrouted path: fail closed (401 without a token, 403 with a valid one), not 404.
+GET http://localhost:4004/not-a-route
+Authorization: Bearer {{accessToken}}
+
+### Gateway probes (public). Readiness does not depend on the downstream services.
+GET http://localhost:4004/actuator/health/readiness
+
+###

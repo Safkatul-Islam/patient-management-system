@@ -16,6 +16,7 @@
         <module>common</module>
         <module>patient-service</module>
         <module>auth-service</module>
+        <module>api-gateway</module>
     </modules>
 
 </project>
