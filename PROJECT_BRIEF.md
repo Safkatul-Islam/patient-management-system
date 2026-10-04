@@ -9,25 +9,27 @@ Build phase-by-phase and get each phase working quickly, but do not skip the fai
 
 Use these technologies unless a project decision explicitly changes them:
 
-- Java (user-approved installed LTS JDK baseline)
-- Spring Boot
-- Spring Framework
-- Maven Wrapper, multi-module
-- Spring Cloud Gateway
-- Spring Security + Nimbus JOSE/JWT
-- PostgreSQL + Flyway
-- Apache Kafka
-- Redpanda for local Kafka-compatible development
-- gRPC + Protocol Buffers
-- Resilience4j
-- Testcontainers
-- Spring Boot Actuator
-- Micrometer + OpenTelemetry
-- Prometheus + Grafana
-- Docker + Docker Compose
-- Terraform + LocalStack where practical
-- AWS ECS Fargate, RDS PostgreSQL, MSK, ALB
-- GitHub Actions
+| Technology | Why this choice |
+|---|---|
+| Java (user-approved installed LTS JDK baseline) | Long-term support, plus virtual threads |
+| Spring Boot | The framework the codebase already runs on; manages library versions through its BOM |
+| Spring Framework | Comes with Spring Boot |
+| Maven Wrapper, multi-module | The codebase, CI, Spotless and Dependabot already use Maven; one module per service under a root aggregator |
+| Spring Cloud Gateway | Single entry point, and the one place JWTs are validated, so downstream services don't each reimplement authentication |
+| Spring Security + Nimbus JOSE/JWT | Access and refresh tokens with role claims, using standard JWT handling instead of hand-rolled token logic |
+| PostgreSQL + Flyway | Database-per-service; Flyway keeps every schema change versioned and reviewable, never manual |
+| Apache Kafka | At-least-once event delivery for the Patient → Notification/Analytics fan-out |
+| Redpanda for local Kafka-compatible development | Kafka-compatible broker for the local dev loop |
+| gRPC + Protocol Buffers | Candidate for the one call where a service needs an answer back before it can proceed (Patient → Billing); kept only if that synchronous need is confirmed |
+| Resilience4j | Timeouts, circuit breaker and an explicit fallback on that synchronous call, not a bare client with no failure plan |
+| Testcontainers | Integration tests run against real PostgreSQL/Kafka, not H2 or mocks pretending to be them |
+| Spring Boot Actuator | Health and readiness probes for every service |
+| Micrometer + OpenTelemetry | Distributed tracing across REST → gRPC → Kafka boundaries, which most CRUD portfolio projects skip |
+| Prometheus + Grafana | Metrics and dashboards on top of Micrometer |
+| Docker + Docker Compose | The local stack brought up with one command |
+| Terraform + LocalStack where practical | Validating Terraform against LocalStack proves the IaC is correct without paying for idle AWS resources |
+| AWS ECS Fargate, RDS PostgreSQL, MSK, ALB | A real managed-service topology, not a single EC2 box pretending to be production |
+| GitHub Actions | Every push builds and runs the full test suite across all modules |
 
 ### Version Selection Rule
 
@@ -93,7 +95,7 @@ Patient access tokens carry a `patientId` claim. Services serving patient-scoped
 Access token:
 - RS256 JWT
 - 15-minute lifetime
-- claims: `sub`, `roles`, optional `patientId`, `iat`, `exp`, `iss`
+- claims: `sub`, `roles`, optional `patientId`, `iat`, `exp`, `iss`, `aud` (`pms-api`), `jti`
 Refresh token:
 - opaque random token, not a JWT
 - 7-day lifetime
@@ -101,10 +103,23 @@ Refresh token:
 - rotate on every refresh
 - support revocation
 Auth Service keeps the private signing key. Gateway verifies through JWKS.
+Why RS256 rather than a shared HS256 secret: signing is asymmetric, so only Auth Service ever holds the private key, and the gateway verifies with the public key it fetches from the JWKS endpoint. The signing key never has to leave Auth Service, which is the real-world OIDC pattern.
+### Endpoints
+| Method | Path | Auth required | Purpose |
+|---|---|---|---|
+| POST | `/auth/login` | none | email + password → access + refresh token pair |
+| POST | `/auth/refresh` | valid refresh token (in the body) | rotates the refresh token, issues a new access token |
+| POST | `/auth/logout` | access token | revokes the caller's refresh token |
+| POST | `/auth/admin/users` | `ADMIN` | creates a staff account (`ADMIN`, `DOCTOR`, `NURSE`, `BILLING_STAFF`) |
+| POST | `/auth/admin/patients` | `ADMIN` | creates a `PATIENT` login account linked to an existing `patientId` |
+| GET | `/.well-known/jwks.json` | none | the public signing key; fetched by the gateway directly, not routed through it |
+
+There is no self-service sign-up: staff create the patient record in Patient Service first, then the login account here.
 ### Auth Data
 `users` owns user identity, email, password hash, role, optional `patient_id`, active state, and creation timestamp.
 `refresh_tokens` owns the hashed token, user reference, expiry, revocation state, and creation timestamp.
 `patient_id` is a plain UUID reference to Patient Service, never a database FK.
+The `patientId` supplied to `/auth/admin/patients` is trusted, not checked live against Patient Service: the admin creating the account has just created that patient record, so a synchronous verification call would add cross-service coupling for marginal benefit. What is enforced is at most one login account per `patientId`.
 ### Gateway Identity Headers
 After JWT verification, forward:
 - `X-User-Id`
