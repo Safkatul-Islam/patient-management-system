@@ -16,4 +16,10 @@ public class ErrorHandlingConfig {
   GatewayErrorWebExceptionHandler gatewayErrorWebExceptionHandler(ProblemResponseWriter writer) {
     return new GatewayErrorWebExceptionHandler(writer);
   }
+
+  /** Picked up by Spring Security's WebFilterChainProxy in place of its bare-400 default. */
+  @Bean
+  FirewallRejectionHandler firewallRejectionHandler(ProblemResponseWriter writer) {
+    return new FirewallRejectionHandler(writer);
+  }
 }

@@ -2,19 +2,16 @@ package org.pms.apigateway;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-import java.io.ByteArrayOutputStream;
 import java.io.IOException;
-import java.io.InputStream;
-import java.io.OutputStream;
-import java.net.Socket;
-import java.nio.charset.StandardCharsets;
 import java.util.List;
+import java.util.Map;
 import java.util.regex.Pattern;
 import java.util.stream.Stream;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.MethodSource;
 import org.pms.apigateway.support.AbstractGatewayTest;
+import org.pms.apigateway.support.RawHttp;
 import org.pms.apigateway.support.StubBackend;
 import org.pms.apigateway.support.Tokens;
 import org.springframework.boot.test.web.server.LocalServerPort;
@@ -115,38 +112,9 @@ class PathNormalizationTest extends AbstractGatewayTest {
     return publicAuth || (withToken && (patients || authProtected));
   }
 
-  /** One HTTP/1.1 request with the request line exactly as given; returns the status code. */
+  /** One raw HTTP/1.1 request with the request line exactly as given; returns the status code. */
   private int send(String method, String rawPath, String token) throws IOException {
-    StringBuilder request = new StringBuilder();
-    request.append(method).append(' ').append(rawPath).append(" HTTP/1.1\r\n");
-    request.append("Host: 127.0.0.1:").append(port).append("\r\n");
-    request.append("Connection: close\r\n");
-    if (token != null) {
-      request.append("Authorization: ").append(bearer(token)).append("\r\n");
-    }
-    if ("POST".equals(method)) {
-      request.append("Content-Type: application/json\r\nContent-Length: 2\r\n\r\n{}");
-    } else {
-      request.append("\r\n");
-    }
-    try (Socket socket = new Socket("127.0.0.1", port)) {
-      socket.setSoTimeout(10_000);
-      OutputStream out = socket.getOutputStream();
-      out.write(request.toString().getBytes(StandardCharsets.US_ASCII));
-      out.flush();
-      String response = readAll(socket.getInputStream());
-      String statusLine = response.lines().findFirst().orElseThrow();
-      return Integer.parseInt(statusLine.split(" ")[1]);
-    }
-  }
-
-  private static String readAll(InputStream in) throws IOException {
-    ByteArrayOutputStream bytes = new ByteArrayOutputStream();
-    byte[] buffer = new byte[4096];
-    int read;
-    while ((read = in.read(buffer)) != -1) {
-      bytes.write(buffer, 0, read);
-    }
-    return bytes.toString(StandardCharsets.ISO_8859_1);
+    Map<String, String> headers = token == null ? Map.of() : Map.of("Authorization", bearer(token));
+    return RawHttp.send(port, method, rawPath, headers).status();
   }
 }

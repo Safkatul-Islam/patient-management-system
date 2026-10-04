@@ -25,7 +25,6 @@ public class ProblemResponseWriter {
 
   public Mono<Void> write(
       ServerWebExchange exchange, HttpStatus status, String title, String detail) {
-    ServerHttpResponse response = exchange.getResponse();
     ProblemDetail problem =
         Problems.create(
             status,
@@ -33,8 +32,14 @@ public class ProblemResponseWriter {
             detail,
             exchange.getRequest().getPath().value(),
             correlationId(exchange));
+    return write(exchange, problem);
+  }
+
+  /** Writes an already built problem; its status becomes the response status. */
+  public Mono<Void> write(ServerWebExchange exchange, ProblemDetail problem) {
+    ServerHttpResponse response = exchange.getResponse();
     byte[] body = jsonMapper.writeValueAsBytes(Problems.toBody(problem));
-    response.setStatusCode(status);
+    response.setStatusCode(HttpStatus.valueOf(problem.getStatus()));
     response.getHeaders().setContentType(MediaType.APPLICATION_PROBLEM_JSON);
     response.getHeaders().setContentLength(body.length);
     DataBuffer buffer = response.bufferFactory().wrap(body);
