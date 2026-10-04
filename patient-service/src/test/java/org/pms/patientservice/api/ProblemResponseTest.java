@@ -35,6 +35,7 @@ class ProblemResponseTest extends AbstractPatientApiTest {
     mockMvc
         .perform(
             put(PATIENTS + "/" + UUID.randomUUID())
+                .with(asAdmin())
                 .header(CORRELATION_HEADER, "test-corr-404")
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(patientJson(uniqueEmail(), "1990-01-01", "2024-01-01")))
@@ -51,6 +52,7 @@ class ProblemResponseTest extends AbstractPatientApiTest {
     mockMvc
         .perform(
             put(PATIENTS + "/" + UUID.randomUUID())
+                .with(asAdmin())
                 .header(CORRELATION_HEADER, "test-corr-log")
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(patientJson(uniqueEmail(), "1990-01-01", "2024-01-01")))
@@ -67,6 +69,7 @@ class ProblemResponseTest extends AbstractPatientApiTest {
         mockMvc
             .perform(
                 put(PATIENTS + "/" + UUID.randomUUID())
+                    .with(asAdmin())
                     .contentType(MediaType.APPLICATION_JSON)
                     .content(patientJson(uniqueEmail(), "1990-01-01", "2024-01-01")))
             .andExpect(status().isNotFound())
@@ -84,6 +87,7 @@ class ProblemResponseTest extends AbstractPatientApiTest {
     mockMvc
         .perform(
             post(PATIENTS)
+                .with(asAdmin())
                 .header(CORRELATION_HEADER, "test-corr-201")
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(patientJson(uniqueEmail(), "1990-01-01", "2024-01-01")))
@@ -100,6 +104,7 @@ class ProblemResponseTest extends AbstractPatientApiTest {
     mockMvc
         .perform(
             post(PATIENTS)
+                .with(asAdmin())
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(patientJson(email, "1990-01-01", "2024-01-01")))
         .andExpect(status().isConflict())
@@ -116,6 +121,7 @@ class ProblemResponseTest extends AbstractPatientApiTest {
     mockMvc
         .perform(
             post(PATIENTS)
+                .with(asAdmin())
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(patientJson(uniqueEmail(), "17/08/1961", "2024-01-01")))
         .andExpect(status().isBadRequest());
@@ -129,6 +135,7 @@ class ProblemResponseTest extends AbstractPatientApiTest {
     mockMvc
         .perform(
             post(PATIENTS)
+                .with(asAdmin())
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(patientJson("not-an-email", "1990-01-01", "2024-01-01")))
         .andExpect(status().isBadRequest())

@@ -2,15 +2,18 @@ package org.pms.patientservice.service;
 
 import java.time.LocalDate;
 import java.util.List;
+import java.util.Objects;
 import java.util.UUID;
 import org.pms.patientservice.dto.PatientRequestDto;
 import org.pms.patientservice.dto.PatientResponseDto;
 import org.pms.patientservice.exception.EmailAlreadyExistsException;
 import org.pms.patientservice.exception.InvalidSortPropertyException;
+import org.pms.patientservice.exception.PatientAccessDeniedException;
 import org.pms.patientservice.exception.PatientNotFoundException;
 import org.pms.patientservice.mapper.PatientMapper;
 import org.pms.patientservice.model.Patient;
 import org.pms.patientservice.repository.PatientRepository;
+import org.pms.patientservice.security.GatewayIdentity;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
@@ -46,6 +49,22 @@ public class PatientService {
             pageable.getPageNumber(), pageable.getPageSize(), pageable.getSort().and(TIEBREAKER));
 
     return patientRepository.findAll(stablePageable).map(patientMapper::mapToDto);
+  }
+
+  /**
+   * Staff may read any record; a PATIENT only its own. Ownership is checked before the lookup, so a
+   * PATIENT asking for another id is refused whether or not that record exists: the answer never
+   * tells it which ids are in use.
+   */
+  public PatientResponseDto getPatient(UUID id, GatewayIdentity caller) {
+    Objects.requireNonNull(caller, "caller is required");
+    if (caller.isPatient() && !id.equals(caller.patientId())) {
+      throw new PatientAccessDeniedException();
+    }
+    return patientRepository
+        .findById(id)
+        .map(patientMapper::mapToDto)
+        .orElseThrow(() -> new PatientNotFoundException("Patient not found with ID: " + id));
   }
 
   public PatientResponseDto createPatient(PatientRequestDto patientRequestDto) {

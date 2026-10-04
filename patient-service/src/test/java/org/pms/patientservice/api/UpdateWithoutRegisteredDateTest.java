@@ -24,6 +24,7 @@ class UpdateWithoutRegisteredDateTest extends AbstractPatientApiTest {
     mockMvc
         .perform(
             put(PATIENTS + "/" + id)
+                .with(asAdmin())
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(patientJson(updatedEmail, "1991-02-03", null)))
         .andExpect(status().isOk())
@@ -40,6 +41,7 @@ class UpdateWithoutRegisteredDateTest extends AbstractPatientApiTest {
     mockMvc
         .perform(
             put(PATIENTS + "/" + id)
+                .with(asAdmin())
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(patientJson(uniqueEmail(), "1991-02-03", null)))
         .andExpect(status().isOk())
@@ -60,6 +62,7 @@ class UpdateWithoutRegisteredDateTest extends AbstractPatientApiTest {
     mockMvc
         .perform(
             put(PATIENTS + "/" + id)
+                .with(asAdmin())
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(patientJson(uniqueEmail(), "1991-02-03", "2025-05-05")))
         .andExpect(status().isOk())

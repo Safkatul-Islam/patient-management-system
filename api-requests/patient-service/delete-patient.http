@@ -1,4 +1,6 @@
-### Delete a patient (run create-patient.http first to set patientId)
-DELETE http://localhost:4000/api/v1/patients/{{patientId}}
+### Delete a patient through the API gateway (run create-patient.http first to set patientId)
+# ADMIN only; {{accessToken}} comes from logging in via api-requests/gateway/.
+DELETE http://localhost:4004/api/v1/patients/{{patientId}}
+Authorization: Bearer {{accessToken}}
 
 ###

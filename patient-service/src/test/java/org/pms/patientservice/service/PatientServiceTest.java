@@ -15,6 +15,8 @@ import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.EnumSource;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
@@ -22,10 +24,13 @@ import org.pms.patientservice.dto.PatientRequestDto;
 import org.pms.patientservice.dto.PatientResponseDto;
 import org.pms.patientservice.exception.EmailAlreadyExistsException;
 import org.pms.patientservice.exception.InvalidSortPropertyException;
+import org.pms.patientservice.exception.PatientAccessDeniedException;
 import org.pms.patientservice.exception.PatientNotFoundException;
 import org.pms.patientservice.mapper.PatientMapper;
 import org.pms.patientservice.model.Patient;
 import org.pms.patientservice.repository.PatientRepository;
+import org.pms.patientservice.security.GatewayIdentity;
+import org.pms.patientservice.security.Role;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.PageRequest;
@@ -176,6 +181,69 @@ class PatientServiceTest {
     assertThatThrownBy(() -> patientService.getPatients(requested))
         .isInstanceOf(InvalidSortPropertyException.class);
     verifyNoInteractions(patientRepository);
+  }
+
+  @Test
+  void patientReadingItsOwnRecordGetsIt() {
+    Patient existing = existingPatient();
+    when(patientRepository.findById(existing.getId())).thenReturn(Optional.of(existing));
+
+    PatientResponseDto found =
+        patientService.getPatient(existing.getId(), patient(existing.getId()));
+
+    assertThat(found.getId()).isEqualTo(existing.getId().toString());
+  }
+
+  @Test
+  void patientReadingAnotherRecordIsDeniedWithoutLookingItUp() {
+    UUID otherId = UUID.randomUUID();
+
+    assertThatThrownBy(() -> patientService.getPatient(otherId, patient(UUID.randomUUID())))
+        .isInstanceOf(PatientAccessDeniedException.class)
+        .message()
+        .doesNotContain(otherId.toString());
+    // No lookup: whether the other record exists must not influence the outcome.
+    verifyNoInteractions(patientRepository);
+  }
+
+  @Test
+  void patientReadingItsOwnMissingRecordGetsNotFound() {
+    UUID ownId = UUID.randomUUID();
+    when(patientRepository.findById(ownId)).thenReturn(Optional.empty());
+
+    assertThatThrownBy(() -> patientService.getPatient(ownId, patient(ownId)))
+        .isInstanceOf(PatientNotFoundException.class);
+  }
+
+  @ParameterizedTest
+  @EnumSource(
+      value = Role.class,
+      names = {"ADMIN", "DOCTOR", "NURSE", "BILLING_STAFF"})
+  void staffReadAnyRecord(Role role) {
+    Patient existing = existingPatient();
+    when(patientRepository.findById(existing.getId())).thenReturn(Optional.of(existing));
+
+    PatientResponseDto found =
+        patientService.getPatient(
+            existing.getId(), new GatewayIdentity(UUID.randomUUID(), role, null));
+
+    assertThat(found.getId()).isEqualTo(existing.getId().toString());
+  }
+
+  @Test
+  void staffReadingAMissingRecordGetsNotFound() {
+    UUID id = UUID.randomUUID();
+    when(patientRepository.findById(id)).thenReturn(Optional.empty());
+
+    assertThatThrownBy(
+            () ->
+                patientService.getPatient(
+                    id, new GatewayIdentity(UUID.randomUUID(), Role.DOCTOR, null)))
+        .isInstanceOf(PatientNotFoundException.class);
+  }
+
+  private static GatewayIdentity patient(UUID ownPatientId) {
+    return new GatewayIdentity(UUID.randomUUID(), Role.PATIENT, ownPatientId);
   }
 
   private static Patient existingPatient() {

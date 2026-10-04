@@ -43,7 +43,7 @@ class PatientResponseIdTest extends AbstractPatientApiTest {
   @DisplayName("GET list exposes an id on every patient")
   void listExposesIdOnEveryPatient() throws Exception {
     mockMvc
-        .perform(get(PATIENTS))
+        .perform(get(PATIENTS).with(asAdmin()))
         .andExpect(status().isOk())
         .andExpect(jsonPath("$.content[*].id").isNotEmpty())
         .andExpect(jsonPath("$.content[?(!@.id)]").isEmpty());

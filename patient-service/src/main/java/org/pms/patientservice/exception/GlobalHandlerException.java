@@ -37,6 +37,19 @@ public class GlobalHandlerException extends ProblemDetailsExceptionHandler {
         request);
   }
 
+  /** Same body whether or not the requested record exists, so a 403 reveals nothing about it. */
+  @ExceptionHandler(PatientAccessDeniedException.class)
+  public ResponseEntity<Object> handlePatientAccessDenied(
+      PatientAccessDeniedException ex, WebRequest request) {
+    log.warn("Rejected patient read: caller does not own the requested record");
+    return respond(
+        ex,
+        HttpStatus.FORBIDDEN,
+        "Forbidden",
+        "You do not have permission to access this patient record.",
+        request);
+  }
+
   @ExceptionHandler(EmailAlreadyExistsException.class)
   public ResponseEntity<Object> handleEmailAlreadyExists(
       EmailAlreadyExistsException ex, WebRequest request) {

@@ -1,5 +1,8 @@
-### Create a patient; stores its id as patientId for the update and delete requests
-POST http://localhost:4000/api/v1/patients
+### Create a patient through the API gateway; stores its id as patientId for the other requests
+# Needs an ADMIN, DOCTOR or NURSE access token: log in via api-requests/gateway/ first, which
+# sets {{accessToken}}. The gateway validates it and forwards the caller's identity.
+POST http://localhost:4004/api/v1/patients
+Authorization: Bearer {{accessToken}}
 Content-Type: application/json
 
 {

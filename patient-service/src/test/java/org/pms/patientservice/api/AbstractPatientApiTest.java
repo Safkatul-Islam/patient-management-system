@@ -16,11 +16,16 @@ import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.context.annotation.Import;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.request.RequestPostProcessor;
 
 /**
  * Shared setup for the patient API regression tests. Tests share one container and one cached
  * context, so each test creates its own records with a unique email and never asserts on the total
  * row count.
+ *
+ * <p>Every request must carry the identity headers the API gateway would forward; {@link
+ * #asAdmin()} and friends add them. Header names and values are written out literally here on
+ * purpose: they are the contract with the gateway.
  */
 @SpringBootTest
 @AutoConfigureMockMvc
@@ -29,7 +34,35 @@ abstract class AbstractPatientApiTest {
 
   protected static final String PATIENTS = "/api/v1/patients";
 
+  protected static final String USER_ID_HEADER = "X-User-Id";
+  protected static final String USER_ROLES_HEADER = "X-User-Roles";
+  protected static final String PATIENT_ID_HEADER = "X-Patient-Id";
+
   @Autowired protected MockMvc mockMvc;
+
+  /** Identity headers of an ADMIN, who may use every patient endpoint. */
+  protected static RequestPostProcessor asAdmin() {
+    return asStaff("ADMIN");
+  }
+
+  /** Identity headers of a staff user holding {@code role}. */
+  protected static RequestPostProcessor asStaff(String role) {
+    return request -> {
+      request.addHeader(USER_ID_HEADER, UUID.randomUUID().toString());
+      request.addHeader(USER_ROLES_HEADER, role);
+      return request;
+    };
+  }
+
+  /** Identity headers of a PATIENT whose own record is {@code patientId}. */
+  protected static RequestPostProcessor asPatient(String patientId) {
+    return request -> {
+      request.addHeader(USER_ID_HEADER, UUID.randomUUID().toString());
+      request.addHeader(USER_ROLES_HEADER, "PATIENT");
+      request.addHeader(PATIENT_ID_HEADER, patientId);
+      return request;
+    };
+  }
 
   protected static String uniqueEmail() {
     return "regression-" + UUID.randomUUID() + "@example.com";
@@ -58,6 +91,7 @@ abstract class AbstractPatientApiTest {
         mockMvc
             .perform(
                 post(PATIENTS)
+                    .with(asAdmin())
                     .contentType(MediaType.APPLICATION_JSON)
                     .content(patientJson(email, "1990-01-01", "2024-01-01")))
             .andExpect(status().isCreated())
@@ -79,7 +113,11 @@ abstract class AbstractPatientApiTest {
     do {
       String response =
           mockMvc
-              .perform(get(PATIENTS).param("page", String.valueOf(page)).param("size", "100"))
+              .perform(
+                  get(PATIENTS)
+                      .with(asAdmin())
+                      .param("page", String.valueOf(page))
+                      .param("size", "100"))
               .andExpect(status().isOk())
               .andReturn()
               .getResponse()

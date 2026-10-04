@@ -36,6 +36,11 @@ class GlobalHandlerExceptionTest {
       throw new PatientNotFoundException("Patient not found with ID: " + UUID.randomUUID());
     }
 
+    @GetMapping("/access-denied")
+    String accessDenied() {
+      throw new PatientAccessDeniedException();
+    }
+
     @GetMapping("/conflict")
     String conflict(@RequestParam String email) {
       throw new EmailAlreadyExistsException();
@@ -81,6 +86,19 @@ class GlobalHandlerExceptionTest {
         .andExpect(jsonPath("$.status").value(404))
         .andExpect(jsonPath("$.title").value("Patient not found"))
         .andExpect(jsonPath("$.detail").value("No patient exists with the requested ID."));
+  }
+
+  @Test
+  void patientAccessDeniedIs403Problem() throws Exception {
+    mockMvc
+        .perform(get("/access-denied"))
+        .andExpect(status().isForbidden())
+        .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON))
+        .andExpect(jsonPath("$.status").value(403))
+        .andExpect(jsonPath("$.title").value("Forbidden"))
+        .andExpect(
+            jsonPath("$.detail")
+                .value("You do not have permission to access this patient record."));
   }
 
   @Test
