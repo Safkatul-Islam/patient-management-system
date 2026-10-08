@@ -135,6 +135,24 @@ Patient creation is the source of `patient.created`.
 Every event needs at minimum a stable `eventId`, event type/version, occurrence timestamp, aggregate/patient ID, required payload, and correlation/trace context.
 Keep event contracts explicit and versionable. Notification and Analytics must not depend on Patient Service's database.
 
+`patient.created`, version 1:
+
+| Field | Type | Meaning |
+|---|---|---|
+| `eventId` | UUID | Stable identity of this event; consumers deduplicate on it |
+| `eventType` | string | Always `patient.created` |
+| `eventVersion` | integer | `1` |
+| `occurredAt` | ISO-8601 UTC instant | When the patient was created (after commit) |
+| `patientId` | UUID | The created patient |
+
+- **No personal data in the payload:** no name, email, date of birth or address. Neither consumer's V1 effect needs any of them; adding one requires a stated reason.
+- **Topic and key:** topic `patient.created`, 3 partitions, record key = `patientId`, so all events for one patient stay in order.
+- **Headers:** `X-Correlation-Id` carries the originating request's correlation ID (the same header name as HTTP). It is not part of the payload.
+- **Serialization:** plain JSON as a string; no Java type headers, so consumers never depend on producer class names.
+- **Ownership:** the producer owns the schema; each consumer keeps its own tolerant reader. The golden fixtures in `contracts/events/` are tested by the producer and by every consumer.
+- **Versioning:** adding an optional field keeps version 1 (consumers ignore unknown fields). A breaking change is a new `eventVersion`; a consumer that receives a version it does not support dead-letters the record instead of dropping it silently.
+- **Dead letters:** each consumer group has its own dead-letter topic, `patient.created.<consumer>.dlt`.
+
 ## Billing and Resilience
 If Billing remains synchronous, decide failure semantics before implementation.
 If patient creation continues during Billing failure, encode a real state such as `PENDING_BILLING` and define reconciliation/retry. Do not document “reconcile later” without a mechanism.
@@ -191,6 +209,7 @@ V1 deliberately does not include:
 - Kubernetes: ECS Fargate is the deployment target
 - multi-region deployment or autoscaling tuning
 - a Kafka schema registry / Avro: events are JSON with explicit, versioned contracts
+- ordering across event types: each event type has its own topic, keyed by `patientId`, so order is guaranteed only per patient within one event type; a future event type for the same patient (e.g. `patient.updated`) has no ordering guarantee relative to `patient.created`
 After-commit publishing reduces one dual-write failure mode but does not guarantee eventual publication after a post-commit broker failure. Document this honestly.
 
 ## If Time Runs Short

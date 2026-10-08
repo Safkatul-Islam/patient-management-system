@@ -1,0 +1,8 @@
+{
+  "eventId": "9d2b7e14-5a3c-4f81-b6d0-7e8f9a0b1c2d",
+  "eventType": "patient.created",
+  "eventVersion": 1,
+  "occurredAt": "2026-10-07T12:35:10.000Z",
+  "patientId": "3c7d9e1f-2a4b-4c6d-8e0f-1a2b3c4d5e70",
+  "addedLaterOptionalField": "consumers must ignore fields they do not know"
+}

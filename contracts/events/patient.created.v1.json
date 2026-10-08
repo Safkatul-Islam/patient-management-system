@@ -1,0 +1,7 @@
+{
+  "eventId": "6f1c2a9e-3b7d-4e58-9a10-2c4d5e6f7a81",
+  "eventType": "patient.created",
+  "eventVersion": 1,
+  "occurredAt": "2026-10-07T12:34:56.789Z",
+  "patientId": "0b8e3f4a-7c21-4d9e-8f60-1a2b3c4d5e6f"
+}
