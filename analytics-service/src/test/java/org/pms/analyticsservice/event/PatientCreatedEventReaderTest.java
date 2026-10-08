@@ -61,6 +61,31 @@ class PatientCreatedEventReaderTest {
     assertInvalid(VALID.replace("\"eventVersion\":1", "\"eventVersion\":2"));
   }
 
+  @ParameterizedTest(name = "{0}")
+  @ValueSource(
+      strings = {
+        "\"eventVersion\":\"1\"",
+        "\"eventVersion\":1.9",
+        "\"eventVersion\":1.0",
+        "\"eventVersion\":true",
+      })
+  @DisplayName("Rejects an eventVersion that is not a JSON integer, instead of coercing it")
+  void rejectsCoercedVersion(String version) {
+    assertInvalid(VALID.replace("\"eventVersion\":1", version));
+  }
+
+  @Test
+  @DisplayName("Rejects a numeric occurredAt instead of reading it as an epoch")
+  void rejectsNumericOccurredAt() {
+    assertInvalid(VALID.replace("\"2026-10-07T12:34:56.789Z\"", "1791376496"));
+  }
+
+  @Test
+  @DisplayName("Rejects a non-string eventType")
+  void rejectsNumericEventType() {
+    assertInvalid(VALID.replace("\"patient.created\"", "42"));
+  }
+
   @ParameterizedTest(name = "missing {0}")
   @ValueSource(strings = {"eventId", "eventType", "eventVersion", "occurredAt", "patientId"})
   @DisplayName("Rejects a payload missing a required field")

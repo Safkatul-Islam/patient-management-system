@@ -1,6 +1,7 @@
 package org.pms.analyticsservice.event;
 
 import java.time.Instant;
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 import org.springframework.stereotype.Component;
@@ -19,6 +20,9 @@ import tools.jackson.databind.json.JsonMapper;
 public class PatientCreatedEventReader {
 
   static final int SUPPORTED_VERSION = 1;
+
+  private static final List<String> STRING_FIELDS =
+      List.of("eventId", "eventType", "occurredAt", "patientId");
 
   private final ObjectReader payloadReader;
   private final ObjectReader treeReader;
@@ -71,17 +75,34 @@ public class PatientCreatedEventReader {
     if (json == null) {
       throw new InvalidEventException("record has no payload");
     }
-    Payload payload;
     try {
-      payload = payloadReader.readValue(json);
+      JsonNode root = payloadReader.readTree(json);
+      if (root == null || !root.isObject()) {
+        throw new InvalidEventException("payload is not a JSON object");
+      }
+      requireJsonTypes(root);
+      return payloadReader.readValue(root);
     } catch (JacksonException e) {
       // Not kept as the cause: parser messages can quote parts of the payload.
       throw new InvalidEventException("payload is not a valid patient.created JSON document");
     }
-    if (payload == null) {
-      throw new InvalidEventException("payload is JSON null");
+  }
+
+  /**
+   * Jackson would coerce {@code "1"} or {@code 1.9} to the integer 1 and read a number as an epoch
+   * {@code occurredAt}. The contract has exact JSON types, so anything else is rejected here.
+   */
+  private static void requireJsonTypes(JsonNode root) {
+    for (String field : STRING_FIELDS) {
+      JsonNode value = root.path(field);
+      if (!value.isMissingNode() && !value.isNull() && !value.isString()) {
+        throw new InvalidEventException("a field has the wrong JSON type");
+      }
     }
-    return payload;
+    JsonNode version = root.path("eventVersion");
+    if (!version.isMissingNode() && !version.isNull() && !version.isIntegralNumber()) {
+      throw new InvalidEventException("a field has the wrong JSON type");
+    }
   }
 
   /** The wire shape. Typed fields make Jackson reject non-UUID IDs and non-ISO-8601 instants. */
