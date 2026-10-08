@@ -41,6 +41,15 @@ services:
       - --memory=1G
       - --kafka-addr=internal://0.0.0.0:9092,external://0.0.0.0:19092
       - --advertise-kafka-addr=internal://redpanda:9092,external://localhost:19092
+      # Topics are created only by the service that owns them (patient-service declares
+      # patient.created with 3 partitions), never implicitly by a first produce or fetch with the
+      # broker's default partition count. This flag applies only when the cluster is first created;
+      # for an existing redpanda-data volume, run once:
+      #   docker exec pms-redpanda rpk cluster config set auto_create_topics_enabled false
+      # rpk only accepts "--set <key>=<value>" as two arguments; "--set=..." is passed through to the
+      # broker binary, which rejects it and the container restarts in a loop.
+      - --set
+      - redpanda.auto_create_topics_enabled=false
     ports:
       - "127.0.0.1:19092:19092"
     volumes:

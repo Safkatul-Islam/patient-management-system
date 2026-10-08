@@ -64,5 +64,10 @@ example requests are in [`api-requests/`](api-requests/), starting with
 `api-requests/gateway/login-and-list-patients.http`. On first start auth-service creates an `ADMIN`
 account from `AUTH_BOOTSTRAP_ADMIN_EMAIL` / `AUTH_BOOTSTRAP_ADMIN_PASSWORD` in `.env`.
 
+Redpanda does not create topics on demand. patient-service creates `patient.created` (3 partitions)
+when it starts; if Redpanda was down at that moment, publishing fails (logged and counted) until the
+topic exists. To recover, restart patient-service once Redpanda is healthy, or create the topic:
+`docker exec pms-redpanda rpk topic create patient.created -p 3`.
+
 Calling a service directly on its own port bypasses the gateway, including its JWT verification.
 That is an accepted local-development trade-off; see the Known Trade-offs in `PROJECT_BRIEF.md`.
