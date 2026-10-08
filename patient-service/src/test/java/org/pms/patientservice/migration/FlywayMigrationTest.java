@@ -7,6 +7,7 @@ import java.util.Map;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.pms.patientservice.support.PostgresTestcontainerConfig;
+import org.pms.patientservice.support.RedpandaTestcontainerConfig;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.annotation.Import;
@@ -14,7 +15,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
 
 /** Fresh databases get their schema from Flyway's V1 migration, not from an init script. */
 @SpringBootTest
-@Import(PostgresTestcontainerConfig.class)
+@Import({PostgresTestcontainerConfig.class, RedpandaTestcontainerConfig.class})
 class FlywayMigrationTest {
 
   @Autowired private JdbcTemplate jdbcTemplate;

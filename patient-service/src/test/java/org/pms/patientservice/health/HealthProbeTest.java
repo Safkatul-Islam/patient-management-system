@@ -11,6 +11,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.pms.patientservice.support.PostgresTestcontainerConfig;
+import org.pms.patientservice.support.RedpandaTestcontainerConfig;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.actuate.endpoint.web.WebEndpointsSupplier;
 import org.springframework.boot.health.actuate.endpoint.HealthEndpointGroups;
@@ -25,7 +26,7 @@ import org.springframework.test.web.servlet.MockMvc;
  */
 @SpringBootTest
 @AutoConfigureMockMvc
-@Import(PostgresTestcontainerConfig.class)
+@Import({PostgresTestcontainerConfig.class, RedpandaTestcontainerConfig.class})
 class HealthProbeTest {
 
   @Autowired private MockMvc mockMvc;
