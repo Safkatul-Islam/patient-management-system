@@ -17,6 +17,8 @@
         <module>patient-service</module>
         <module>auth-service</module>
         <module>api-gateway</module>
+        <module>notification-service</module>
+        <module>analytics-service</module>
     </modules>
 
 </project>
