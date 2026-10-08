@@ -8,10 +8,14 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
+import java.time.Clock;
+import java.time.Instant;
 import java.time.LocalDate;
+import java.time.ZoneOffset;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -20,8 +24,10 @@ import org.junit.jupiter.params.provider.EnumSource;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.pms.common.web.correlation.CorrelationIds;
 import org.pms.patientservice.dto.PatientRequestDto;
 import org.pms.patientservice.dto.PatientResponseDto;
+import org.pms.patientservice.event.PatientCreated;
 import org.pms.patientservice.exception.EmailAlreadyExistsException;
 import org.pms.patientservice.exception.InvalidSortPropertyException;
 import org.pms.patientservice.exception.PatientAccessDeniedException;
@@ -31,6 +37,8 @@ import org.pms.patientservice.model.Patient;
 import org.pms.patientservice.repository.PatientRepository;
 import org.pms.patientservice.security.GatewayIdentity;
 import org.pms.patientservice.security.Role;
+import org.slf4j.MDC;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.PageRequest;
@@ -42,13 +50,26 @@ class PatientServiceTest {
 
   private static final String EMAIL = "test.patient@example.com";
 
+  private static final Instant NOW = Instant.parse("2026-10-07T12:00:00Z");
+
   @Mock private PatientRepository patientRepository;
+  @Mock private ApplicationEventPublisher eventPublisher;
 
   private PatientService patientService;
 
   @BeforeEach
   void setUp() {
-    patientService = new PatientService(patientRepository, new PatientMapper());
+    patientService =
+        new PatientService(
+            patientRepository,
+            new PatientMapper(),
+            eventPublisher,
+            Clock.fixed(NOW, ZoneOffset.UTC));
+  }
+
+  @AfterEach
+  void clearMdc() {
+    MDC.remove(CorrelationIds.MDC_KEY);
   }
 
   @Test
@@ -71,6 +92,47 @@ class PatientServiceTest {
   }
 
   @Test
+  void createRaisesPatientCreatedWithTheRequestsCorrelationId() {
+    UUID id = UUID.randomUUID();
+    when(patientRepository.existsByEmail(EMAIL)).thenReturn(false);
+    when(patientRepository.save(any(Patient.class)))
+        .thenAnswer(
+            invocation -> {
+              Patient saved = invocation.getArgument(0);
+              saved.setId(id);
+              return saved;
+            });
+    MDC.put(CorrelationIds.MDC_KEY, "req-123");
+
+    patientService.createPatient(request(EMAIL, "2024-01-01"));
+
+    ArgumentCaptor<PatientCreated> event = ArgumentCaptor.forClass(PatientCreated.class);
+    verify(eventPublisher).publishEvent(event.capture());
+    assertThat(event.getValue().patientId()).isEqualTo(id);
+    assertThat(event.getValue().eventId()).isNotNull();
+    assertThat(event.getValue().occurredAt()).isEqualTo(NOW);
+    assertThat(event.getValue().correlationId()).isEqualTo("req-123");
+  }
+
+  @Test
+  void createOutsideARequestGeneratesACorrelationId() {
+    when(patientRepository.existsByEmail(EMAIL)).thenReturn(false);
+    when(patientRepository.save(any(Patient.class)))
+        .thenAnswer(
+            invocation -> {
+              Patient saved = invocation.getArgument(0);
+              saved.setId(UUID.randomUUID());
+              return saved;
+            });
+
+    patientService.createPatient(request(EMAIL, "2024-01-01"));
+
+    ArgumentCaptor<PatientCreated> event = ArgumentCaptor.forClass(PatientCreated.class);
+    verify(eventPublisher).publishEvent(event.capture());
+    assertThat(UUID.fromString(event.getValue().correlationId())).isNotNull();
+  }
+
+  @Test
   void createWithTakenEmailThrowsConflictWithoutSaving() {
     when(patientRepository.existsByEmail(EMAIL)).thenReturn(true);
 
@@ -78,6 +140,7 @@ class PatientServiceTest {
         .isInstanceOf(EmailAlreadyExistsException.class)
         .message()
         .doesNotContain(EMAIL);
+    verifyNoInteractions(eventPublisher);
     verify(patientRepository, never()).save(any());
   }
 
