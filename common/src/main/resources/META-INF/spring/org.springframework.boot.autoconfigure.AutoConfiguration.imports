@@ -1,2 +1,3 @@
 org.pms.common.autoconfigure.CommonWebAutoConfiguration
 org.pms.common.autoconfigure.CommonReactiveWebAutoConfiguration
+org.pms.common.autoconfigure.CommonKafkaAutoConfiguration

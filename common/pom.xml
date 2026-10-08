@@ -38,6 +38,12 @@
             <artifactId>spring-security-web</artifactId>
             <optional>true</optional>
         </dependency>
+        <!-- Kafka consumers: correlation ID from message headers into the MDC. -->
+        <dependency>
+            <groupId>org.springframework.kafka</groupId>
+            <artifactId>spring-kafka</artifactId>
+            <optional>true</optional>
+        </dependency>
         <!-- Carries the correlation ID from the Reactor context into the MDC on reactive threads. -->
         <dependency>
             <groupId>io.micrometer</groupId>
