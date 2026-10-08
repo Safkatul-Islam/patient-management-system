@@ -24,8 +24,8 @@ class PatientCreatedEventReaderTest {
   private static final String EVENT_ID = "6f1c2a9e-3b7d-4e58-9a10-2c4d5e6f7a81";
   private static final String PATIENT_ID = "0b8e3f4a-7c21-4d9e-8f60-1a2b3c4d5e6f";
 
-  // Strict on purpose: the reader must switch unknown-field tolerance on itself, not rely on the
-  // shared mapper happening to have it.
+  // Strict on purpose: unknown-field tolerance must come from the reader itself, not from the
+  // shared mapper happening to be lenient.
   private final PatientCreatedEventReader reader =
       new PatientCreatedEventReader(
           JsonMapper.builder().enable(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES).build());
@@ -57,10 +57,35 @@ class PatientCreatedEventReaderTest {
   }
 
   @ParameterizedTest
-  @ValueSource(strings = {"2", "0", "1.5", "null", "\"one\""})
-  @DisplayName("Rejects any eventVersion other than 1")
+  @ValueSource(strings = {"2", "0", "1.5", "1.0", "null", "\"1\"", "\"one\"", "true", "[1]"})
+  @DisplayName("Rejects any eventVersion other than the JSON integer 1 (no coercion)")
   void rejectsUnsupportedVersion(String version) {
     assertInvalid(event("\"patient.created\"", version, quoted(EVENT_ID), quoted(PATIENT_ID)));
+  }
+
+  @ParameterizedTest
+  @ValueSource(strings = {"1791377696", "1791377696.789", "\"yesterday\"", "\"2026-10-07\"", "{}"})
+  @DisplayName("Rejects an occurredAt that is not an ISO-8601 instant string (no coercion)")
+  void rejectsNonStringOrInvalidOccurredAt(String occurredAt) {
+    assertInvalid(
+        """
+        {"eventId":"%s","eventType":"patient.created","eventVersion":1,
+         "occurredAt":%s,"patientId":"%s"}"""
+            .formatted(EVENT_ID, occurredAt, PATIENT_ID));
+  }
+
+  @ParameterizedTest
+  @ValueSource(strings = {"null", "7", "[\"patient.created\"]"})
+  @DisplayName("Rejects an eventType that is not the JSON string patient.created")
+  void rejectsNonStringType(String type) {
+    assertInvalid(event(type, "1", quoted(EVENT_ID), quoted(PATIENT_ID)));
+  }
+
+  @ParameterizedTest
+  @ValueSource(strings = {"\"1-1-1-1-1\"", "7", "null", "\"\""})
+  @DisplayName("Rejects a patientId that is not a canonical UUID string")
+  void rejectsMalformedPatientId(String patientId) {
+    assertInvalid(event("\"patient.created\"", "1", quoted(EVENT_ID), patientId));
   }
 
   @Test

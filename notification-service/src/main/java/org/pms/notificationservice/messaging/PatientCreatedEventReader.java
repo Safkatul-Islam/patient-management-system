@@ -1,56 +1,55 @@
 package org.pms.notificationservice.messaging;
 
 import java.time.Instant;
+import java.time.format.DateTimeParseException;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.regex.Pattern;
 import org.pms.notificationservice.exception.InvalidEventException;
 import org.springframework.stereotype.Component;
 import tools.jackson.core.JacksonException;
-import tools.jackson.databind.DeserializationFeature;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
 
 /**
- * Tolerant reader for the {@code patient.created} contract: binds only the fields this service
- * needs, ignores any it does not know (fields added later within version 1), and rejects anything
- * that is not a complete version 1 event with an {@link InvalidEventException}.
+ * Tolerant but strict reader for the {@code patient.created} contract. Tolerant: it reads only the
+ * fields it needs from the JSON tree, so fields added later within version 1 are ignored by
+ * construction. Strict: each field it does read must have exactly the contract's JSON type (no
+ * coercion of {@code "1"} into a version or of a number into a timestamp), and anything that is not
+ * a complete version 1 event is rejected with an {@link InvalidEventException}.
  */
 @Component
 public class PatientCreatedEventReader {
 
   private static final String EVENT_ID = "eventId";
 
+  // Canonical 8-4-4-4-12 form only; UUID.fromString alone also accepts shortened groups.
+  private static final Pattern CANONICAL_UUID =
+      Pattern.compile(
+          "[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}");
+
   private final JsonMapper jsonMapper;
 
   public PatientCreatedEventReader(JsonMapper jsonMapper) {
-    // Set explicitly instead of inheriting whatever the shared mapper defaults to: ignoring
-    // unknown fields is what makes this a tolerant reader, and an eventVersion of 1.5 must not be
-    // truncated into a supported version.
-    this.jsonMapper =
-        jsonMapper
-            .rebuild()
-            .disable(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES)
-            .disable(DeserializationFeature.ACCEPT_FLOAT_AS_INT)
-            .build();
+    this.jsonMapper = jsonMapper;
   }
 
   /** Reads a record value as a version 1 event, or throws {@link InvalidEventException}. */
   public PatientCreatedEvent read(String payload) {
-    if (payload == null || payload.isBlank()) {
-      throw new InvalidEventException("Event payload is empty");
-    }
-    Payload event = parse(payload);
-    if (!PatientCreatedEvent.TYPE.equals(event.eventType())) {
+    JsonNode event = parseObject(payload);
+    JsonNode type = event.get("eventType");
+    if (type == null || !type.isString() || !PatientCreatedEvent.TYPE.equals(type.stringValue())) {
       throw new InvalidEventException("Event type is not " + PatientCreatedEvent.TYPE);
     }
-    if (event.eventVersion() == null
-        || event.eventVersion() != PatientCreatedEvent.SUPPORTED_VERSION) {
+    JsonNode version = event.get("eventVersion");
+    if (version == null
+        || !version.isIntegralNumber()
+        || !version.canConvertToInt()
+        || version.intValue() != PatientCreatedEvent.SUPPORTED_VERSION) {
       throw new InvalidEventException("Event version is not supported");
     }
-    requirePresent(event.eventId(), EVENT_ID);
-    requirePresent(event.occurredAt(), "occurredAt");
-    requirePresent(event.patientId(), "patientId");
-    return new PatientCreatedEvent(event.eventId(), event.occurredAt(), event.patientId());
+    return new PatientCreatedEvent(
+        uuid(event, EVENT_ID), instant(event, "occurredAt"), uuid(event, "patientId"));
   }
 
   /**
@@ -58,41 +57,55 @@ public class PatientCreatedEventReader {
    * that failed. Never throws; empty when the payload has no valid UUID {@code eventId}.
    */
   public Optional<UUID> eventIdOf(String payload) {
-    if (payload == null || payload.isBlank()) {
-      return Optional.empty();
-    }
     try {
-      JsonNode eventId = jsonMapper.readTree(payload).get(EVENT_ID);
-      if (eventId == null || !eventId.isString()) {
-        return Optional.empty();
-      }
-      return Optional.of(UUID.fromString(eventId.stringValue()));
-    } catch (JacksonException | IllegalArgumentException ex) {
+      return Optional.of(uuid(parseObject(payload), EVENT_ID));
+    } catch (InvalidEventException ex) {
       return Optional.empty();
     }
   }
 
-  private Payload parse(String payload) {
-    Payload event;
+  private JsonNode parseObject(String payload) {
+    if (payload == null || payload.isBlank()) {
+      throw new InvalidEventException("Event payload is empty");
+    }
+    JsonNode tree;
     try {
-      event = jsonMapper.readValue(payload, Payload.class);
+      tree = jsonMapper.readTree(payload);
     } catch (JacksonException ex) {
       // Not chained: the parser's message can quote the payload (see InvalidEventException).
-      throw new InvalidEventException("Event payload is not a valid patient.created JSON object");
+      throw new InvalidEventException("Event payload is not valid JSON");
     }
-    if (event == null) {
-      throw new InvalidEventException("Event payload is JSON null");
+    if (tree == null || !tree.isObject()) {
+      throw new InvalidEventException("Event payload is not a JSON object");
     }
-    return event;
+    return tree;
   }
 
-  private static void requirePresent(Object value, String field) {
-    if (value == null) {
+  private static UUID uuid(JsonNode event, String field) {
+    String text = requiredString(event, field);
+    if (!CANONICAL_UUID.matcher(text).matches()) {
+      throw new InvalidEventException("Event field " + field + " is not a UUID");
+    }
+    return UUID.fromString(text);
+  }
+
+  private static Instant instant(JsonNode event, String field) {
+    String text = requiredString(event, field);
+    try {
+      return Instant.parse(text);
+    } catch (DateTimeParseException ex) {
+      throw new InvalidEventException("Event field " + field + " is not an ISO-8601 instant");
+    }
+  }
+
+  private static String requiredString(JsonNode event, String field) {
+    JsonNode value = event.get(field);
+    if (value == null || value.isNull()) {
       throw new InvalidEventException("Event field " + field + " is missing");
     }
+    if (!value.isString()) {
+      throw new InvalidEventException("Event field " + field + " is not a JSON string");
+    }
+    return value.stringValue();
   }
-
-  /** The wire shape; every field nullable so absence is reported by name, not by the parser. */
-  record Payload(
-      UUID eventId, String eventType, Integer eventVersion, Instant occurredAt, UUID patientId) {}
 }
