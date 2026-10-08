@@ -24,8 +24,8 @@ import org.springframework.kafka.listener.ListenerExecutionFailedException;
  * kafka_dlt-*} headers.
  *
  * <p>The log line holds coordinates and IDs only: never the payload or the exception message. The
- * correlation ID is read from the record itself, because the record interceptor has already
- * cleared the MDC by the time the error handler recovers a record.
+ * correlation ID is read from the record itself, because the record interceptor has already cleared
+ * the MDC by the time the error handler recovers a record.
  */
 public class ObservedDeadLetterPublishingRecoverer extends DeadLetterPublishingRecoverer {
 
@@ -78,7 +78,9 @@ public class ObservedDeadLetterPublishingRecoverer extends DeadLetterPublishingR
     return "unknown";
   }
 
-  /** Same rule as the record interceptor: a missing or malformed value is replaced, never logged. */
+  /**
+   * Same rule as the record interceptor: a missing or malformed value is replaced, never logged.
+   */
   private static String correlationId(ConsumerRecord<?, ?> record) {
     Header header = record.headers().lastHeader(CorrelationIds.HEADER);
     String value =

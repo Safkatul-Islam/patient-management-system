@@ -50,7 +50,8 @@ public class PatientCreatedConsumerConfig {
       @Value("${spring.application.name}") String consumerName) {
     Counter deadLettered =
         Counter.builder(DEAD_LETTERED_METRIC)
-            .description("Records this consumer could not process and sent to its dead-letter topic")
+            .description(
+                "Records this consumer could not process and sent to its dead-letter topic")
             .tag("consumer", consumerName)
             .register(meterRegistry);
     return new ObservedDeadLetterPublishingRecoverer(

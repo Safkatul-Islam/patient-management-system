@@ -26,7 +26,8 @@ public class PatientCreatedListener {
   private final PatientCreatedEventReader reader;
   private final PatientCreatedProcessor processor;
 
-  public PatientCreatedListener(PatientCreatedEventReader reader, PatientCreatedProcessor processor) {
+  public PatientCreatedListener(
+      PatientCreatedEventReader reader, PatientCreatedProcessor processor) {
     this.reader = reader;
     this.processor = processor;
   }
