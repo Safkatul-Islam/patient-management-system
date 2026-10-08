@@ -6,10 +6,14 @@ services:
       POSTGRES_DB: patient_db
       POSTGRES_USER: ${POSTGRES_USER}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
-      # Read by docker/postgres/init/01-create-auth-db.sh to create auth-service's
-      # own role and database (auth_db) next to patient_db.
+      # Read by the docker/postgres/init scripts to create each service's own role
+      # and database (auth_db, notification_db, analytics_db) next to patient_db.
       AUTH_DB_USER: ${AUTH_DB_USER}
       AUTH_DB_PASSWORD: ${AUTH_DB_PASSWORD}
+      NOTIFICATION_DB_USER: ${NOTIFICATION_DB_USER}
+      NOTIFICATION_DB_PASSWORD: ${NOTIFICATION_DB_PASSWORD}
+      ANALYTICS_DB_USER: ${ANALYTICS_DB_USER}
+      ANALYTICS_DB_PASSWORD: ${ANALYTICS_DB_PASSWORD}
     ports:
       - "127.0.0.1:5432:5432"
     volumes:
@@ -24,5 +28,31 @@ services:
       start_period: 10s
     restart: unless-stopped
 
+  # Kafka-API-compatible broker for local development: a single node in dev-container mode.
+  # Services on the host connect to 127.0.0.1:19092; the internal listener is for containers.
+  redpanda:
+    image: redpandadata/redpanda:v26.2.2
+    container_name: pms-redpanda
+    command:
+      - redpanda
+      - start
+      - --mode=dev-container
+      - --smp=1
+      - --memory=1G
+      - --kafka-addr=internal://0.0.0.0:9092,external://0.0.0.0:19092
+      - --advertise-kafka-addr=internal://redpanda:9092,external://localhost:19092
+    ports:
+      - "127.0.0.1:19092:19092"
+    volumes:
+      - redpanda-data:/var/lib/redpanda/data
+    healthcheck:
+      test: ["CMD-SHELL", "rpk cluster info -X brokers=localhost:9092 > /dev/null"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 15s
+    restart: unless-stopped
+
 volumes:
   patient-db-data:
+  redpanda-data:
