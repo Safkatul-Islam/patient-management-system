@@ -121,13 +121,16 @@ class FlywayBaselineTest {
 
   /**
    * Starts and stops the real application with its own application.properties. Command-line args
-   * outrank that file, so only the connection (plus any extra flags) is overridden.
+   * outrank that file, so only the connection (plus any extra flags) is overridden. Topic creation
+   * is switched off: it is the only startup step that contacts Kafka, and this test has no broker
+   * (the default address may be a developer's local one).
    */
   private void startApplication(String... extraArgs) {
     String[] connection = {
       "--spring.datasource.url=" + postgres.getJdbcUrl(),
       "--spring.datasource.username=" + postgres.getUsername(),
-      "--spring.datasource.password=" + postgres.getPassword()
+      "--spring.datasource.password=" + postgres.getPassword(),
+      "--spring.kafka.admin.auto-create=false"
     };
     String[] args =
         Stream.concat(Stream.of(connection), Stream.of(extraArgs)).toArray(String[]::new);

@@ -1,11 +1,14 @@
 package org.pms.patientservice.service;
 
+import java.time.Clock;
 import java.time.LocalDate;
 import java.util.List;
 import java.util.Objects;
 import java.util.UUID;
+import org.pms.common.web.correlation.CorrelationIds;
 import org.pms.patientservice.dto.PatientRequestDto;
 import org.pms.patientservice.dto.PatientResponseDto;
+import org.pms.patientservice.event.PatientCreated;
 import org.pms.patientservice.exception.EmailAlreadyExistsException;
 import org.pms.patientservice.exception.InvalidSortPropertyException;
 import org.pms.patientservice.exception.PatientAccessDeniedException;
@@ -14,11 +17,14 @@ import org.pms.patientservice.mapper.PatientMapper;
 import org.pms.patientservice.model.Patient;
 import org.pms.patientservice.repository.PatientRepository;
 import org.pms.patientservice.security.GatewayIdentity;
+import org.slf4j.MDC;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 @Service
 public class PatientService {
@@ -32,10 +38,18 @@ public class PatientService {
 
   private final PatientRepository patientRepository;
   private final PatientMapper patientMapper;
+  private final ApplicationEventPublisher eventPublisher;
+  private final Clock clock;
 
-  public PatientService(PatientRepository patientRepository, PatientMapper patientMapper) {
+  public PatientService(
+      PatientRepository patientRepository,
+      PatientMapper patientMapper,
+      ApplicationEventPublisher eventPublisher,
+      Clock clock) {
     this.patientRepository = patientRepository;
     this.patientMapper = patientMapper;
+    this.eventPublisher = eventPublisher;
+    this.clock = clock;
   }
 
   public Page<PatientResponseDto> getPatients(Pageable pageable) {
@@ -67,11 +81,25 @@ public class PatientService {
         .orElseThrow(() -> new PatientNotFoundException("Patient not found with ID: " + id));
   }
 
+  /**
+   * Transactional so that {@link PatientCreated} is published to Kafka only after the insert
+   * commits: a create that rolls back, including a lost duplicate-email race failing at commit,
+   * publishes nothing. The correlation ID is read here, on the request thread, because the MDC does
+   * not reach the producer's threads.
+   */
+  @Transactional
   public PatientResponseDto createPatient(PatientRequestDto patientRequestDto) {
     if (patientRepository.existsByEmail(patientRequestDto.getEmail())) {
       throw new EmailAlreadyExistsException();
     }
     Patient newPatient = patientRepository.save(patientMapper.mapToEntity(patientRequestDto));
+
+    eventPublisher.publishEvent(
+        new PatientCreated(
+            UUID.randomUUID(),
+            newPatient.getId(),
+            clock.instant(),
+            CorrelationIds.resolve(MDC.get(CorrelationIds.MDC_KEY))));
 
     return patientMapper.mapToDto(newPatient);
   }

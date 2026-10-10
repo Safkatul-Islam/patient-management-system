@@ -10,6 +10,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import org.pms.patientservice.support.PostgresTestcontainerConfig;
+import org.pms.patientservice.support.RedpandaTestcontainerConfig;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
@@ -29,8 +30,8 @@ import org.springframework.test.web.servlet.request.RequestPostProcessor;
  */
 @SpringBootTest
 @AutoConfigureMockMvc
-@Import(PostgresTestcontainerConfig.class)
-abstract class AbstractPatientApiTest {
+@Import({PostgresTestcontainerConfig.class, RedpandaTestcontainerConfig.class})
+public abstract class AbstractPatientApiTest {
 
   protected static final String PATIENTS = "/api/v1/patients";
 
