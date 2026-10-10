@@ -14,7 +14,11 @@ public class DailyRegistrations {
     this.repository = repository;
   }
 
-  /** Counts the registration; runs in the caller's transaction. */
+  /**
+   * Counts the registration in {@link PatientCreatedHandler}'s transaction. The repository method
+   * is MANDATORY, so this fails outright when called without one. (Not annotated here: a
+   * transactional proxy on this class cannot be spied on by the tests that make the effect fail.)
+   */
   public void record(PatientCreatedEvent event) {
     repository.increment(event.registrationDay());
   }
