@@ -83,11 +83,11 @@ class PatientCreatedEventIntegrationTest extends AbstractPatientApiTest {
   private static final Duration ROLLBACK_WINDOW = Duration.ofSeconds(5);
   private static final int CONCURRENT_CREATES = 5;
 
-  /** The request no longer waits on Kafka at all. */
-  private static final Duration FAST_RESPONSE = Duration.ofSeconds(1);
+  /** The request does not wait on Kafka; see AbstractLostEventTest.FAST_RESPONSE for the bound. */
+  private static final Duration FAST_RESPONSE = AbstractLostEventTest.FAST_RESPONSE;
 
   /** Spies make this context distinct (its producer starts cold); unstubbed, they act normally. */
-  @MockitoSpyBean private KafkaTemplate<String, String> kafkaTemplate;
+  @MockitoSpyBean private KafkaTemplate<?, ?> kafkaTemplate;
 
   @MockitoSpyBean private PatientRepository patientRepository;
 

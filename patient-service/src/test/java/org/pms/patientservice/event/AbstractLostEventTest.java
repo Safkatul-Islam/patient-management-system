@@ -42,8 +42,12 @@ import org.springframework.test.web.servlet.MockMvc;
 @DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
 abstract class AbstractLostEventTest {
 
-  /** The request does not wait on Kafka, whatever the broker's state. */
-  static final Duration FAST_RESPONSE = Duration.ofSeconds(1);
+  /**
+   * The request does not wait on Kafka, whatever the broker's state. Kept below the producer's
+   * max.block.ms (2 s), which is what a send on the request thread would add, but with headroom for
+   * the first request of a cold test JVM (measured at 1.4 s once, with Kafka not involved).
+   */
+  static final Duration FAST_RESPONSE = Duration.ofMillis(1500);
 
   private static final Logger log = LoggerFactory.getLogger(AbstractLostEventTest.class);
 
@@ -55,13 +59,15 @@ abstract class AbstractLostEventTest {
   @Autowired private JdbcTemplate jdbcTemplate;
   @Autowired private MeterRegistry meterRegistry;
 
-  /** Measures how long each send() blocks its caller; otherwise behaves normally. */
-  @MockitoSpyBean private KafkaTemplate<String, String> kafkaTemplate;
+  /**
+   * Measures how long each send() blocks its caller; otherwise behaves normally. Typed {@code <?,
+   * ?>} because that is the type Boot's bean method declares; a spy of {@code KafkaTemplate<String,
+   * String>} finds no bean to wrap.
+   */
+  @MockitoSpyBean private KafkaTemplate<?, ?> kafkaTemplate;
 
-  /** What one lost-event create measured. */
-  record LostEvent(String patientId, Duration httpTime, Duration sendBlocking) {}
-
-  LostEvent createAndExpectOneLostEvent(CapturedOutput output, String scenario) throws Exception {
+  /** Creates one patient and checks its event is lost visibly; logs the measured timings. */
+  void createAndExpectOneLostEvent(CapturedOutput output, String scenario) throws Exception {
     int outputStart = output.getAll().length();
     double failuresBefore = sendFailures();
     List<Duration> sendBlocking = new CopyOnWriteArrayList<>();
@@ -98,7 +104,6 @@ abstract class AbstractLostEventTest {
     Duration httpTime = Duration.ofNanos(System.nanoTime() - started);
     String patientId = JsonPath.read(response, "$.id");
 
-    assertThat(httpTime).isLessThan(FAST_RESPONSE);
     assertThat(
             jdbcTemplate.queryForObject(
                 "SELECT count(*) FROM patients WHERE id = ?",
@@ -108,7 +113,15 @@ abstract class AbstractLostEventTest {
 
     await()
         .atMost(Duration.ofSeconds(15))
-        .until(() -> sendFailures() == failuresBefore + 1 && sendBlocking.size() == 1);
+        .until(() -> sendFailures() >= failuresBefore + 1 && !sendBlocking.isEmpty());
+    log.info(
+        "{}: send() blocked {} ms; HTTP create {} ms",
+        scenario,
+        sendBlocking.getFirst().toMillis(),
+        httpTime.toMillis());
+    assertThat(httpTime).isLessThan(FAST_RESPONSE);
+    assertThat(sendFailures()).isEqualTo(failuresBefore + 1);
+    assertThat(sendBlocking).hasSize(1);
 
     String captured = output.getAll().substring(outputStart);
     assertThat(captured.lines().filter(line -> line.contains("\"level\":\"ERROR\"")))
@@ -119,14 +132,6 @@ abstract class AbstractLostEventTest {
     assertThat(captured)
         .doesNotContain("payload=", "Exception thrown when sending a message")
         .doesNotContain(NAME, email, ADDRESS, DATE_OF_BIRTH);
-
-    LostEvent lost = new LostEvent(patientId, httpTime, sendBlocking.getFirst());
-    log.info(
-        "{}: send() blocked {} ms; HTTP create {} ms",
-        scenario,
-        lost.sendBlocking().toMillis(),
-        lost.httpTime().toMillis());
-    return lost;
   }
 
   private double sendFailures() {
