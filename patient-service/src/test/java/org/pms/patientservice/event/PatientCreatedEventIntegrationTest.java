@@ -2,6 +2,9 @@ package org.pms.patientservice.event;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.Mockito.doAnswer;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -14,30 +17,43 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
-import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.CyclicBarrier;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
+import org.apache.kafka.clients.producer.ProducerRecord;
 import org.apache.kafka.common.header.Header;
 import org.hibernate.exception.ConstraintViolationException;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.MethodOrderer;
+import org.junit.jupiter.api.Order;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.TestMethodOrder;
+import org.mockito.Mockito;
+import org.mockito.stubbing.Answer;
 import org.pms.common.web.correlation.CorrelationIds;
 import org.pms.patientservice.api.AbstractPatientApiTest;
 import org.pms.patientservice.dto.PatientRequestDto;
-import org.pms.patientservice.exception.EmailAlreadyExistsException;
+import org.pms.patientservice.repository.PatientRepository;
 import org.pms.patientservice.service.PatientService;
 import org.pms.patientservice.support.TopicReader;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.kafka.autoconfigure.KafkaConnectionDetails;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.kafka.core.KafkaTemplate;
+import org.springframework.test.annotation.DirtiesContext;
+import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
+import org.springframework.test.web.servlet.MvcResult;
 import org.springframework.transaction.support.TransactionTemplate;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
@@ -47,8 +63,15 @@ import tools.jackson.databind.json.JsonMapper;
  * fixture, is published once and only after the patient is committed, and never for a create that
  * rolls back. Every "nothing was published" assertion sits next to a committed control create in
  * the same test, so it cannot pass just because publishing is broken.
+ *
+ * <p>Runs in its own context (closed afterwards) because of the spies below.
  */
+@TestMethodOrder(MethodOrderer.OrderAnnotation.class)
+@DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
 class PatientCreatedEventIntegrationTest extends AbstractPatientApiTest {
+
+  private static final Logger log =
+      LoggerFactory.getLogger(PatientCreatedEventIntegrationTest.class);
 
   private static final Path CONTRACT_FIXTURE =
       Path.of("..", "contracts", "events", "patient.created.v1.json");
@@ -58,7 +81,15 @@ class PatientCreatedEventIntegrationTest extends AbstractPatientApiTest {
   private static final Duration SETTLE = Duration.ofSeconds(2);
 
   private static final Duration ROLLBACK_WINDOW = Duration.ofSeconds(5);
-  private static final int CONCURRENT_CREATES = 8;
+  private static final int CONCURRENT_CREATES = 5;
+
+  /** The request no longer waits on Kafka at all. */
+  private static final Duration FAST_RESPONSE = Duration.ofSeconds(1);
+
+  /** Spies make this context distinct (its producer starts cold); unstubbed, they act normally. */
+  @MockitoSpyBean private KafkaTemplate<String, String> kafkaTemplate;
+
+  @MockitoSpyBean private PatientRepository patientRepository;
 
   @Autowired private KafkaConnectionDetails kafka;
   @Autowired private PatientCreatedTopicProperties topicProperties;
@@ -77,6 +108,46 @@ class PatientCreatedEventIntegrationTest extends AbstractPatientApiTest {
   @AfterEach
   void stopReading() {
     reader.close();
+  }
+
+  /**
+   * Runs first, so its first create is the first send in this context (cold producer: no
+   * connection, no topic metadata yet). Measures how long kafkaTemplate.send() blocks its caller
+   * and how long the HTTP request takes, cold and then warm.
+   */
+  @Test
+  @Order(1)
+  @DisplayName("with the broker up, a create answers fast whether the producer is cold or warm")
+  void sendBlockingColdAndWarmWithTheBrokerUp() throws Exception {
+    List<Duration> sendBlocking = new CopyOnWriteArrayList<>();
+    doAnswer(
+            invocation -> {
+              long started = System.nanoTime();
+              try {
+                return invocation.callRealMethod();
+              } finally {
+                sendBlocking.add(Duration.ofNanos(System.nanoTime() - started));
+              }
+            })
+        .when(kafkaTemplate)
+        .send(any(ProducerRecord.class));
+
+    Duration[] http = new Duration[2];
+    for (int i = 0; i < 2; i++) {
+      long started = System.nanoTime();
+      String patientId = createViaApi(uniqueEmail(), "measure-" + shortId());
+      http[i] = Duration.ofNanos(System.nanoTime() - started);
+      assertThat(reader.awaitKey(patientId, ARRIVAL_TIMEOUT)).hasSize(1);
+    }
+
+    assertThat(sendBlocking).hasSize(2);
+    log.info(
+        "Broker up: send() blocked cold={} ms warm={} ms; HTTP create cold={} ms warm={} ms",
+        sendBlocking.get(0).toMillis(),
+        sendBlocking.get(1).toMillis(),
+        http[0].toMillis(),
+        http[1].toMillis());
+    assertThat(http).allSatisfy(time -> assertThat(time).isLessThan(FAST_RESPONSE));
   }
 
   @Test
@@ -169,61 +240,68 @@ class PatientCreatedEventIntegrationTest extends AbstractPatientApiTest {
   }
 
   @Test
-  @DisplayName("concurrent same-email creates publish exactly one record, for the winner")
+  @DisplayName(
+      "a forced same-email race: every loser fails at commit (409), one event for the winner")
   void duplicateEmailRacePublishesOnlyTheWinner() throws Exception {
-    String email = uniqueEmail();
-    List<Object> outcomes = raceCreates(email);
+    // All requests pass the email pre-check before any of them commits, so every loser reaches
+    // the unique constraint at commit instead of the pre-check.
+    CyclicBarrier allPastPreCheck = new CyclicBarrier(CONCURRENT_CREATES);
+    Answer<?> realRepository =
+        Mockito.mockingDetails(patientRepository).getMockCreationSettings().getDefaultAnswer();
+    doAnswer(
+            invocation -> {
+              Object exists = realRepository.answer(invocation);
+              allPastPreCheck.await(30, TimeUnit.SECONDS);
+              return exists;
+            })
+        .when(patientRepository)
+        .existsByEmail(anyString());
 
-    List<String> created =
-        outcomes.stream().filter(String.class::isInstance).map(String.class::cast).toList();
-    List<Throwable> rejected =
-        outcomes.stream().filter(Throwable.class::isInstance).map(Throwable.class::cast).toList();
+    List<MvcResult> results = raceApiCreates(uniqueEmail());
+
+    List<MvcResult> created =
+        results.stream().filter(r -> r.getResponse().getStatus() == 201).toList();
+    List<MvcResult> conflicts =
+        results.stream().filter(r -> r.getResponse().getStatus() == 409).toList();
     assertThat(created).hasSize(1);
-    // A loser either fails the service's pre-check or, having passed it concurrently, is
-    // rejected by the unique constraint when its transaction commits.
-    assertThat(rejected)
+    assertThat(conflicts)
         .hasSize(CONCURRENT_CREATES - 1)
         .allSatisfy(
-            failure -> {
-              if (!(failure instanceof EmailAlreadyExistsException)) {
-                assertThat(failure).isExactlyInstanceOf(DataIntegrityViolationException.class);
-                assertThat(constraintName(failure)).isEqualTo("patients_email_key");
-              }
+            conflict -> {
+              Exception resolved = conflict.getResolvedException();
+              assertThat(resolved).isExactlyInstanceOf(DataIntegrityViolationException.class);
+              assertThat(constraintName(resolved)).isEqualTo("patients_email_key");
             });
 
-    String winnerId = created.getFirst();
+    String winnerId = JsonPath.read(created.getFirst().getResponse().getContentAsString(), "$.id");
     assertThat(reader.awaitKey(winnerId, ARRIVAL_TIMEOUT)).hasSize(1);
     // Every record since the race started: losers' rolled-back inserts published nothing.
     assertThat(reader.pollFor(SETTLE)).extracting(ConsumerRecord::key).containsExactly(winnerId);
   }
 
-  /** Runs concurrent creates; each outcome is the created id or the exception thrown. */
-  private List<Object> raceCreates(String email) throws Exception {
-    CountDownLatch ready = new CountDownLatch(CONCURRENT_CREATES);
-    CountDownLatch start = new CountDownLatch(1);
+  /** Sends concurrent API creates with one email and returns every result. */
+  private List<MvcResult> raceApiCreates(String email) throws Exception {
+    String body = patientJson(email, "1990-01-01", "2024-01-01");
     ExecutorService pool = Executors.newFixedThreadPool(CONCURRENT_CREATES);
     try {
-      List<Future<Object>> futures = new ArrayList<>();
+      List<Future<MvcResult>> futures = new ArrayList<>();
       for (int i = 0; i < CONCURRENT_CREATES; i++) {
         futures.add(
             pool.submit(
-                () -> {
-                  ready.countDown();
-                  start.await();
-                  try {
-                    return patientService.createPatient(request(email)).getId();
-                  } catch (RuntimeException failure) {
-                    return failure;
-                  }
-                }));
+                () ->
+                    mockMvc
+                        .perform(
+                            post(PATIENTS)
+                                .with(asAdmin())
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content(body))
+                        .andReturn()));
       }
-      assertThat(ready.await(30, TimeUnit.SECONDS)).isTrue();
-      start.countDown();
-      List<Object> outcomes = new ArrayList<>();
-      for (Future<Object> future : futures) {
-        outcomes.add(future.get(30, TimeUnit.SECONDS));
+      List<MvcResult> results = new ArrayList<>();
+      for (Future<MvcResult> future : futures) {
+        results.add(future.get(60, TimeUnit.SECONDS));
       }
-      return outcomes;
+      return results;
     } finally {
       pool.shutdownNow();
     }

@@ -158,7 +158,7 @@ public class PatientCreatedPublisher implements DisposableBean {
    * must never be logged from here.
    */
   private void recordFailure(PatientCreated event, String reason, Throwable failure) {
-    failuresByReason.get(reason).increment();
+    // Logged before counting, so whoever sees the count can also find the line.
     log.error(
         "Failed to publish patient.created eventId={} patientId={} reason={} errorType={}"
             + " causeType={}",
@@ -167,6 +167,7 @@ public class PatientCreatedPublisher implements DisposableBean {
         reason,
         failure == null ? "none" : failure.getClass().getName(),
         failure == null ? "none" : rootCause(failure).getClass().getName());
+    failuresByReason.get(reason).increment();
   }
 
   /** Runs {@code action} with the event's correlation ID in the MDC, then restores the MDC. */
