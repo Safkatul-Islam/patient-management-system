@@ -10,6 +10,7 @@ import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalTime;
 import java.time.ZoneOffset;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -21,20 +22,20 @@ import org.apache.kafka.clients.consumer.KafkaConsumer;
 import org.apache.kafka.clients.producer.KafkaProducer;
 import org.apache.kafka.clients.producer.ProducerConfig;
 import org.apache.kafka.clients.producer.ProducerRecord;
+import org.apache.kafka.clients.producer.RecordMetadata;
+import org.apache.kafka.common.TopicPartition;
 import org.apache.kafka.common.serialization.StringDeserializer;
 import org.apache.kafka.common.serialization.StringSerializer;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.pms.analyticsservice.event.PatientCreatedEventReader;
-import org.pms.analyticsservice.model.DailyRegistration;
-import org.pms.analyticsservice.repository.DailyRegistrationRepository;
-import org.pms.analyticsservice.repository.ProcessedEventRepository;
 import org.pms.analyticsservice.service.DailyRegistrations;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.system.OutputCaptureExtension;
 import org.springframework.context.annotation.Import;
+import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.kafka.config.KafkaListenerEndpointRegistry;
 import org.springframework.kafka.test.utils.ContainerTestUtils;
 import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
@@ -46,8 +47,16 @@ import org.testcontainers.redpanda.RedpandaContainer;
  *
  * <p>Tests share the topics and the consumer group, so each one uses its own event IDs and its own
  * registration day, and waits for its records to be fully handled before it ends.
+ *
+ * <p>The short Hikari and socket timeouts make an unreachable database fail an attempt within a few
+ * seconds, so the paused-database test stays fast.
  */
-@SpringBootTest
+@SpringBootTest(
+    properties = {
+      "spring.datasource.hikari.connection-timeout=2000",
+      "spring.datasource.hikari.validation-timeout=1000",
+      "spring.datasource.hikari.data-source-properties[socketTimeout]=3"
+    })
 @Import(ContainersConfig.class)
 @ExtendWith(OutputCaptureExtension.class)
 public abstract class AbstractConsumerIntegrationTest {
@@ -60,10 +69,9 @@ public abstract class AbstractConsumerIntegrationTest {
   @MockitoSpyBean protected PatientCreatedEventReader reader;
   @MockitoSpyBean protected DailyRegistrations dailyRegistrations;
 
-  @Autowired protected ProcessedEventRepository processedEvents;
   @Autowired protected MeterRegistry meterRegistry;
   @Autowired protected RedpandaContainer redpanda;
-  @Autowired private DailyRegistrationRepository dailyRegistrationRepository;
+  @Autowired protected JdbcClient jdbc;
   @Autowired private KafkaListenerEndpointRegistry listenerRegistry;
 
   private KafkaProducer<String, String> producer;
@@ -114,59 +122,84 @@ public abstract class AbstractConsumerIntegrationTest {
   }
 
   /** Sends and waits for the broker's acknowledgement; {@code partition} null lets the key pick. */
-  protected void send(Integer partition, String key, String value, String correlationId)
+  protected RecordMetadata send(Integer partition, String key, String value, String correlationId)
       throws Exception {
     ProducerRecord<String, String> record =
         new ProducerRecord<>(ContainersConfig.SOURCE_TOPIC, partition, key, value);
     if (correlationId != null) {
       record.headers().add("X-Correlation-Id", correlationId.getBytes(StandardCharsets.UTF_8));
     }
-    producer.send(record).get(10, TimeUnit.SECONDS);
+    return producer.send(record).get(10, TimeUnit.SECONDS);
   }
 
   protected long registrationsOn(LocalDate day) {
-    return dailyRegistrationRepository
-        .findById(day)
-        .map(DailyRegistration::getRegistrations)
+    return jdbc.sql("SELECT registrations FROM daily_registrations WHERE day = ?")
+        .param(day)
+        .query(Long.class)
+        .optional()
         .orElse(0L);
   }
 
-  protected void awaitProcessed(UUID eventId) {
-    await().atMost(TIMEOUT).until(() -> processedEvents.existsById(eventId));
+  protected boolean isProcessed(UUID eventId) {
+    return jdbc.sql("SELECT count(*) FROM processed_events WHERE event_id = ?")
+            .param(eventId)
+            .query(Long.class)
+            .single()
+        == 1;
   }
 
-  protected double deadLetteredCount() {
-    Counter counter =
-        meterRegistry
-            .find("pms.events.dead_lettered")
-            .tag("consumer", "analytics-service")
-            .counter();
+  protected void awaitProcessed(UUID eventId) {
+    await().atMost(TIMEOUT).until(() -> isProcessed(eventId));
+  }
+
+  protected double counterValue(String name) {
+    Counter counter = meterRegistry.find(name).tag("consumer", "analytics-service").counter();
     return counter == null ? 0 : counter.count();
   }
 
-  /** Reads the dead-letter topic from the beginning until the record with this value appears. */
+  protected double deadLetteredCount() {
+    return counterValue("pms.events.dead_lettered");
+  }
+
+  /** Waits until the dead-letter topic holds a record with this value and returns it. */
   protected ConsumerRecord<String, String> awaitDeadLetter(String value) {
+    return await()
+        .atMost(TIMEOUT)
+        .until(() -> deadLettersWithValue(value), records -> !records.isEmpty())
+        .get(0);
+  }
+
+  /** Every record with this value on the dead-letter topic, read from the start up to its end. */
+  protected List<ConsumerRecord<String, String>> deadLettersWithValue(String value) {
     Map<String, Object> config =
         Map.of(
             ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG,
             redpanda.getBootstrapServers(),
-            ConsumerConfig.GROUP_ID_CONFIG,
-            "dlt-reader-" + UUID.randomUUID(),
-            ConsumerConfig.AUTO_OFFSET_RESET_CONFIG,
-            "earliest");
+            ConsumerConfig.ENABLE_AUTO_COMMIT_CONFIG,
+            false);
+    List<ConsumerRecord<String, String>> matches = new ArrayList<>();
     try (KafkaConsumer<String, String> consumer =
         new KafkaConsumer<>(config, new StringDeserializer(), new StringDeserializer())) {
-      consumer.subscribe(List.of(DEAD_LETTER_TOPIC));
+      List<TopicPartition> partitions =
+          consumer.partitionsFor(DEAD_LETTER_TOPIC, Duration.ofSeconds(10)).stream()
+              .map(info -> new TopicPartition(info.topic(), info.partition()))
+              .toList();
+      consumer.assign(partitions);
+      consumer.seekToBeginning(partitions);
+      Map<TopicPartition, Long> end = consumer.endOffsets(partitions, Duration.ofSeconds(10));
       long deadline = System.nanoTime() + TIMEOUT.toNanos();
-      while (System.nanoTime() < deadline) {
-        for (ConsumerRecord<String, String> record : consumer.poll(Duration.ofMillis(500))) {
+      while (partitions.stream().anyMatch(tp -> consumer.position(tp) < end.get(tp))) {
+        if (System.nanoTime() > deadline) {
+          throw new AssertionError("Could not read the dead-letter topic to its end");
+        }
+        for (ConsumerRecord<String, String> record : consumer.poll(Duration.ofMillis(200))) {
           if (value.equals(record.value())) {
-            return record;
+            matches.add(record);
           }
         }
       }
     }
-    throw new AssertionError("No dead letter with the expected value within " + TIMEOUT);
+    return matches;
   }
 
   protected static String header(ConsumerRecord<?, ?> record, String name) {

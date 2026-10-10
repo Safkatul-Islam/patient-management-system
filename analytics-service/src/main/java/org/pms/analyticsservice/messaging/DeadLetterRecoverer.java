@@ -2,36 +2,40 @@ package org.pms.analyticsservice.messaging;
 
 import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.MeterRegistry;
-import java.nio.charset.StandardCharsets;
 import org.apache.kafka.clients.consumer.Consumer;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
-import org.apache.kafka.common.header.Header;
 import org.pms.analyticsservice.event.PatientCreatedEventReader;
-import org.pms.common.web.correlation.CorrelationIds;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.slf4j.MDC;
 import org.springframework.kafka.listener.ConsumerAwareRecordRecoverer;
-import org.springframework.kafka.listener.ListenerExecutionFailedException;
 
 /**
- * Publishes a failed record to the dead-letter topic (through {@code delegate}) and, once that
- * succeeded, makes it visible: the {@value #COUNTER} counter and one ERROR line with the record's
- * coordinates, the exception type, the event ID when readable and the correlation ID. Neither the
- * payload nor the exception message is logged.
+ * Publishes a failed record to the dead-letter topic (through {@code delegate}) and makes the
+ * outcome visible. Neither the payload nor any exception message is logged.
  *
- * <p>If publishing fails, the delegate throws, nothing is counted, and the error handler keeps the
- * record for another attempt instead of dropping it.
+ * <ul>
+ *   <li>Published: one ERROR line with the record's coordinates, the exception type, the event ID
+ *       when readable and the correlation ID, then the {@value #DEAD_LETTERED} counter.
+ *   <li>Publish failed: one ERROR line and the {@value #PUBLISH_FAILURES} counter, and the failure
+ *       is rethrown so the error handler keeps the record and tries again instead of skipping it.
+ * </ul>
+ *
+ * <p>Delivery to the dead-letter topic is at least once: after a crash between the publish and the
+ * consumer's offset commit, the record is processed again and can be dead-lettered twice. Readers
+ * of the dead-letter topic should deduplicate by {@code eventId} or by the {@code
+ * kafka_dlt-original-topic/partition/offset} headers.
  */
 class DeadLetterRecoverer implements ConsumerAwareRecordRecoverer {
 
-  static final String COUNTER = "pms.events.dead_lettered";
+  static final String DEAD_LETTERED = "pms.events.dead_lettered";
+  static final String PUBLISH_FAILURES = "pms.events.dead_letter.failures";
 
   private static final Logger log = LoggerFactory.getLogger(DeadLetterRecoverer.class);
 
   private final ConsumerAwareRecordRecoverer delegate;
   private final PatientCreatedEventReader reader;
   private final Counter deadLettered;
+  private final Counter publishFailures;
 
   DeadLetterRecoverer(
       ConsumerAwareRecordRecoverer delegate,
@@ -41,58 +45,63 @@ class DeadLetterRecoverer implements ConsumerAwareRecordRecoverer {
     this.delegate = delegate;
     this.reader = reader;
     this.deadLettered =
-        Counter.builder(COUNTER)
+        Counter.builder(DEAD_LETTERED)
             .description("Records published to a dead-letter topic")
+            .tag("consumer", consumer)
+            .register(meterRegistry);
+    this.publishFailures =
+        Counter.builder(PUBLISH_FAILURES)
+            .description("Failed attempts to publish a record to a dead-letter topic")
             .tag("consumer", consumer)
             .register(meterRegistry);
   }
 
   @Override
   public void accept(ConsumerRecord<?, ?> record, Consumer<?, ?> consumer, Exception exception) {
-    delegate.accept(record, consumer, exception);
+    try {
+      delegate.accept(record, consumer, exception);
+    } catch (RuntimeException publishFailure) {
+      publishFailures.increment();
+      ListenerFailures.withCorrelationId(
+          record,
+          () ->
+              log.error(
+                  "Dead-letter publish failed, record will be retried topic={} partition={}"
+                      + " offset={} failureType={}",
+                  record.topic(),
+                  record.partition(),
+                  record.offset(),
+                  publishFailure.getClass().getName()));
+      throw publishFailure;
+    }
+    try {
+      logDeadLettered(record, exception);
+    } catch (RuntimeException loggingFailure) {
+      // Deliberately not propagated: the record is already on the dead-letter topic, and an
+      // exception here would make the error handler publish it a second time. With logging
+      // itself failing there is nowhere left to report this.
+    }
     deadLettered.increment();
-    logDeadLettered(record, exception);
   }
 
   private void logDeadLettered(ConsumerRecord<?, ?> record, Exception exception) {
-    // Not relying on the record interceptor's MDC entry, which is scoped to the listener call:
-    // the correlation ID is taken from the record itself (validated, never echoed when malformed).
-    String previous = MDC.get(CorrelationIds.MDC_KEY);
-    MDC.put(CorrelationIds.MDC_KEY, CorrelationIds.resolve(correlationHeader(record)));
-    try {
-      log.error(
-          "Dead-lettered record topic={} partition={} offset={} exceptionType={} eventId={}",
-          record.topic(),
-          record.partition(),
-          record.offset(),
-          rootFailure(exception).getClass().getName(),
-          eventId(record));
-    } finally {
-      if (previous == null) {
-        MDC.remove(CorrelationIds.MDC_KEY);
-      } else {
-        MDC.put(CorrelationIds.MDC_KEY, previous);
-      }
-    }
+    String failureType = ListenerFailures.listenerFailure(exception).getClass().getName();
+    String eventId = eventId(record);
+    ListenerFailures.withCorrelationId(
+        record,
+        () ->
+            log.error(
+                "Dead-lettered record topic={} partition={} offset={} exceptionType={} eventId={}",
+                record.topic(),
+                record.partition(),
+                record.offset(),
+                failureType,
+                eventId));
   }
 
   private String eventId(ConsumerRecord<?, ?> record) {
     return record.value() instanceof String payload
         ? reader.eventIdOf(payload).map(Object::toString).orElse("unknown")
         : "unknown";
-  }
-
-  /** The listener's own exception, not the container's wrapper around it. */
-  private static Throwable rootFailure(Exception exception) {
-    return exception instanceof ListenerExecutionFailedException && exception.getCause() != null
-        ? exception.getCause()
-        : exception;
-  }
-
-  private static String correlationHeader(ConsumerRecord<?, ?> record) {
-    Header header = record.headers().lastHeader(CorrelationIds.HEADER);
-    return header == null || header.value() == null
-        ? null
-        : new String(header.value(), StandardCharsets.UTF_8);
   }
 }

@@ -13,10 +13,13 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
+import java.util.stream.StreamSupport;
 import org.apache.kafka.clients.admin.Admin;
 import org.apache.kafka.clients.admin.AdminClientConfig;
 import org.apache.kafka.clients.admin.TopicDescription;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
+import org.apache.kafka.clients.producer.RecordMetadata;
+import org.apache.kafka.common.header.Header;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.pms.analyticsservice.event.InvalidEventException;
@@ -45,7 +48,7 @@ class DeadLetterTest extends AbstractConsumerIntegrationTest {
         .record(argThat(event -> failingId.equals(event.eventId())));
     double deadLetteredBefore = deadLetteredCount();
 
-    send(null, key, failing, "anlt-fail-123");
+    RecordMetadata sent = send(null, key, failing, "anlt-fail-123");
 
     ConsumerRecord<String, String> deadLetter = awaitDeadLetter(failing);
     verify(dailyRegistrations, times(3))
@@ -53,11 +56,11 @@ class DeadLetterTest extends AbstractConsumerIntegrationTest {
     assertThat(header(deadLetter, KafkaHeaders.DLT_EXCEPTION_CAUSE_FQCN))
         .isEqualTo(IllegalStateException.class.getName());
     // Rolled back together: no idempotency row that would hide the event from a replay.
-    assertThat(processedEvents.existsById(failingId)).isFalse();
+    assertThat(isProcessed(failingId)).isFalse();
     assertThat(registrationsOn(failingDay)).isZero();
     await().atMost(TIMEOUT).until(() -> deadLetteredCount() == deadLetteredBefore + 1);
 
-    List<String> errorLines = deadLetterLines(output, failingId);
+    List<String> errorLines = linesWith(output, "Dead-lettered record", "eventId=" + failingId);
     assertThat(errorLines).hasSize(1);
     assertThat(errorLines.get(0))
         .contains("\"log\":{\"level\":\"ERROR\"")
@@ -66,8 +69,22 @@ class DeadLetterTest extends AbstractConsumerIntegrationTest {
         .contains("exceptionType=java.lang.IllegalStateException")
         .contains("\"correlationId\":\"anlt-fail-123\"")
         .doesNotContain("simulated effect failure")
-        .doesNotContain(failing)
         .doesNotContain("eventVersion");
+    List<String> attemptLines =
+        linesWith(
+            output,
+            "Delivery attempt failed",
+            "partition=" + sent.partition() + " offset=" + sent.offset() + " ");
+    assertThat(attemptLines)
+        .hasSize(3)
+        .allSatisfy(
+            line ->
+                assertThat(line)
+                    .contains("\"log\":{\"level\":\"WARN\"")
+                    .contains("exceptionType=java.lang.IllegalStateException")
+                    .contains("\"correlationId\":\"anlt-fail-123\"")
+                    .doesNotContain("simulated effect failure")
+                    .doesNotContain("\"error\":"));
 
     // The partition is not blocked: a later event for the same key is processed.
     UUID laterId = UUID.randomUUID();
@@ -91,18 +108,20 @@ class DeadLetterTest extends AbstractConsumerIntegrationTest {
     for (String poison : List.of(malformed, version2)) {
       assertThat(header(awaitDeadLetter(poison), KafkaHeaders.DLT_EXCEPTION_CAUSE_FQCN))
           .isEqualTo(InvalidEventException.class.getName());
+    }
+    await().atMost(TIMEOUT).until(() -> deadLetteredCount() == deadLetteredBefore + 2);
+    for (String poison : List.of(malformed, version2)) {
       verify(reader, times(1)).read(poison);
     }
-    assertThat(processedEvents.existsById(v2Id)).isFalse();
-    await().atMost(TIMEOUT).until(() -> deadLetteredCount() == deadLetteredBefore + 2);
+    assertThat(isProcessed(v2Id)).isFalse();
     // The event ID is reported when the payload has one, even though the version is unsupported.
-    assertThat(deadLetterLines(output, v2Id)).hasSize(1);
+    assertThat(linesWith(output, "Dead-lettered record", "eventId=" + v2Id)).hasSize(1);
     assertThat(output.getAll()).doesNotContain("not closed");
   }
 
   @Test
-  @DisplayName("The dead-letter topic has enough partitions and takes a record from partition 2")
-  void deadLetterFromLastPartition() throws Exception {
+  @DisplayName("Dead letters are routed by key, not source partition, and carry no exception text")
+  void deadLettersRoutedByKey() throws Exception {
     try (Admin admin =
         Admin.create(
             Map.of(AdminClientConfig.BOOTSTRAP_SERVERS_CONFIG, redpanda.getBootstrapServers()))) {
@@ -116,26 +135,53 @@ class DeadLetterTest extends AbstractConsumerIntegrationTest {
       assertThat(topics.get(DEAD_LETTER_TOPIC).partitions().size())
           .isGreaterThanOrEqualTo(sourcePartitions);
     }
-    String poison = "not json " + UUID.randomUUID();
+    String key = "same-key-" + UUID.randomUUID();
+    String fromPartition0 = "not json " + UUID.randomUUID();
+    String fromPartition2 = "not json " + UUID.randomUUID();
+    double deadLetteredBefore = deadLetteredCount();
 
-    send(2, "partition-two-key", poison, null);
+    send(0, key, fromPartition0, "anlt-route-0");
+    send(2, key, fromPartition2, "anlt-route-2");
 
-    ConsumerRecord<String, String> deadLetter = awaitDeadLetter(poison);
-    assertThat(deadLetter.topic()).isEqualTo(DEAD_LETTER_TOPIC);
-    assertThat(deadLetter.key()).isEqualTo("partition-two-key");
-    assertThat(header(deadLetter, KafkaHeaders.DLT_ORIGINAL_TOPIC))
+    ConsumerRecord<String, String> first = awaitDeadLetter(fromPartition0);
+    ConsumerRecord<String, String> second = awaitDeadLetter(fromPartition2);
+    await().atMost(TIMEOUT).until(() -> deadLetteredCount() == deadLetteredBefore + 2);
+    // Same-partition routing would have put these on DLT partitions 0 and 2.
+    assertThat(second.partition()).isEqualTo(first.partition());
+    assertThat(originalPartition(first)).isZero();
+    assertThat(originalPartition(second)).isEqualTo(2);
+    assertThat(first.key()).isEqualTo(key);
+    assertThat(second.key()).isEqualTo(key);
+    assertThat(header(first, "X-Correlation-Id")).isEqualTo("anlt-route-0");
+    assertThat(header(second, "X-Correlation-Id")).isEqualTo("anlt-route-2");
+    assertThat(header(first, KafkaHeaders.DLT_ORIGINAL_TOPIC))
         .isEqualTo(ContainersConfig.SOURCE_TOPIC);
-    byte[] originalPartition =
-        deadLetter.headers().lastHeader(KafkaHeaders.DLT_ORIGINAL_PARTITION).value();
-    assertThat(ByteBuffer.wrap(originalPartition).getInt()).isEqualTo(2);
+
+    List<String> headerNames = headerNames(first);
+    assertThat(headerNames)
+        .contains(KafkaHeaders.DLT_EXCEPTION_FQCN, KafkaHeaders.DLT_EXCEPTION_CAUSE_FQCN)
+        .doesNotContain(
+            KafkaHeaders.DLT_EXCEPTION_MESSAGE,
+            KafkaHeaders.DLT_EXCEPTION_STACKTRACE,
+            KafkaHeaders.DLT_KEY_EXCEPTION_MESSAGE,
+            KafkaHeaders.DLT_KEY_EXCEPTION_STACKTRACE)
+        .noneMatch(name -> name.contains("message") || name.contains("stacktrace"));
   }
 
-  private static List<String> deadLetterLines(CapturedOutput output, UUID eventId) {
+  private static int originalPartition(ConsumerRecord<?, ?> record) {
+    return ByteBuffer.wrap(record.headers().lastHeader(KafkaHeaders.DLT_ORIGINAL_PARTITION).value())
+        .getInt();
+  }
+
+  private static List<String> headerNames(ConsumerRecord<?, ?> record) {
+    return StreamSupport.stream(record.headers().spliterator(), false).map(Header::key).toList();
+  }
+
+  private static List<String> linesWith(CapturedOutput output, String text, String marker) {
     return output
         .getAll()
         .lines()
-        .filter(
-            line -> line.contains("Dead-lettered record") && line.contains("eventId=" + eventId))
+        .filter(line -> line.contains(text) && line.contains(marker))
         .toList();
   }
 }

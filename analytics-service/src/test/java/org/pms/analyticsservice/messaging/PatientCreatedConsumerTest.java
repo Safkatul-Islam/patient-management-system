@@ -10,7 +10,6 @@ import java.util.List;
 import java.util.UUID;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
-import org.pms.analyticsservice.model.ProcessedEvent;
 import org.pms.analyticsservice.support.AbstractConsumerIntegrationTest;
 import org.springframework.boot.test.system.CapturedOutput;
 
@@ -26,10 +25,12 @@ class PatientCreatedConsumerTest extends AbstractConsumerIntegrationTest {
 
     awaitProcessed(eventId);
     await().atMost(TIMEOUT).until(() -> registrationsOn(day) == 1);
-    assertThat(processedEvents.findById(eventId))
-        .get()
-        .extracting(ProcessedEvent::getEventType)
-        .isEqualTo("patient.created");
+    assertThat(
+            jdbc.sql("SELECT event_type FROM processed_events WHERE event_id = ?")
+                .param(eventId)
+                .query(String.class)
+                .list())
+        .containsExactly("patient.created");
   }
 
   @Test
@@ -49,7 +50,7 @@ class PatientCreatedConsumerTest extends AbstractConsumerIntegrationTest {
     awaitProcessed(sentinelId);
     verify(reader, times(2)).read(duplicated);
     assertThat(registrationsOn(day)).isEqualTo(1);
-    assertThat(processedEvents.existsById(eventId)).isTrue();
+    assertThat(isProcessed(eventId)).isTrue();
   }
 
   @Test
