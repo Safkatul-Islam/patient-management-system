@@ -5,8 +5,6 @@ import org.pms.notificationservice.messaging.PatientCreatedEvent;
 import org.pms.notificationservice.model.Notification;
 import org.pms.notificationservice.repository.NotificationRepository;
 import org.springframework.stereotype.Component;
-import org.springframework.transaction.annotation.Propagation;
-import org.springframework.transaction.annotation.Transactional;
 
 /**
  * The business effect of a patient.created event: one WELCOME notification, recorded rather than
@@ -25,10 +23,10 @@ public class WelcomeNotificationRecorder {
   }
 
   /**
-   * Runs only inside the caller's transaction, together with the processed-event marker; without
-   * one it fails instead of recording a notification that deduplication never saw.
+   * Runs only inside the caller's transaction, together with the processed-event marker: the
+   * repository's {@code save} is {@code MANDATORY}, so without one this fails instead of recording
+   * a notification that deduplication never saw.
    */
-  @Transactional(propagation = Propagation.MANDATORY)
   public void record(PatientCreatedEvent event) {
     notifications.save(Notification.welcome(event.eventId(), event.patientId(), clock.instant()));
   }
