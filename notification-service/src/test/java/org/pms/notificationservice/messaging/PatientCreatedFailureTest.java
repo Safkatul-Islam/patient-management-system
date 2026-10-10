@@ -55,6 +55,22 @@ class PatientCreatedFailureTest extends AbstractPatientCreatedIntegrationTest {
     assertThat(notificationsFor(failingEventId)).isZero();
     assertThat(header(deadLetter, KafkaHeaders.DLT_ORIGINAL_TOPIC)).isEqualTo(properties.topic());
     assertThat(header(deadLetter, "X-Correlation-Id")).isEqualTo("notif-fail-1");
+    assertNoExceptionText(deadLetter);
+
+    // One WARN per failed attempt, the last one included; class only, no message.
+    String coordinates = sourceCoordinates(deadLetter);
+    await()
+        .atMost(TIMEOUT)
+        .until(() -> linesContaining(output, "failed for record " + coordinates).size() == 3);
+    for (int attempt = 1; attempt <= 3; attempt++) {
+      assertThat(
+              linesContaining(output, "Attempt " + attempt + " failed for record " + coordinates))
+          .singleElement()
+          .asString()
+          .contains("\"level\":\"WARN\"")
+          .contains("with java.lang.IllegalStateException\"")
+          .doesNotContain("Simulated notification store failure");
+    }
 
     await().atMost(TIMEOUT).until(() -> deadLetteredCount() == before + 1);
     await()
@@ -91,8 +107,14 @@ class PatientCreatedFailureTest extends AbstractPatientCreatedIntegrationTest {
     // Spring records the listener's wrapper exception and its cause; ours is the cause.
     assertThat(header(deadLetter, KafkaHeaders.DLT_EXCEPTION_CAUSE_FQCN))
         .isEqualTo(InvalidEventException.class.getName());
-    assertThat(header(deadLetter, KafkaHeaders.DLT_EXCEPTION_MESSAGE)).doesNotContain("not json");
+    assertNoExceptionText(deadLetter);
     await().atMost(TIMEOUT).until(() -> deadLetteredCount() == before + 1);
+    // Not retryable: its single failed attempt is the only one reported.
+    assertThat(linesContaining(output, "failed for record " + sourceCoordinates(deadLetter)))
+        .singleElement()
+        .asString()
+        .contains("Attempt 1 failed")
+        .contains("with " + InvalidEventException.class.getName());
     await()
         .atMost(TIMEOUT)
         .until(() -> !linesContaining(output, DLT_LOG, "correlationId=notif-poison-1").isEmpty());
@@ -124,5 +146,15 @@ class PatientCreatedFailureTest extends AbstractPatientCreatedIntegrationTest {
         .until(() -> !linesContaining(output, DLT_LOG, "eventId=" + eventId).isEmpty());
     assertThat(linesContaining(output, DLT_LOG, "eventId=" + eventId)).hasSize(1);
     assertThat(output.getAll()).doesNotContain(PAYLOAD_MARKER);
+  }
+
+  /** Exception classes and original-* headers are kept; free-text message and trace are not. */
+  private static void assertNoExceptionText(ConsumerRecord<String, String> deadLetter) {
+    assertThat(header(deadLetter, KafkaHeaders.DLT_EXCEPTION_FQCN)).isNotBlank();
+    assertThat(header(deadLetter, KafkaHeaders.DLT_ORIGINAL_OFFSET)).isNotNull();
+    assertThat(deadLetter.headers().lastHeader(KafkaHeaders.DLT_EXCEPTION_MESSAGE)).isNull();
+    assertThat(deadLetter.headers().lastHeader(KafkaHeaders.DLT_EXCEPTION_STACKTRACE)).isNull();
+    assertThat(deadLetter.headers().lastHeader(KafkaHeaders.DLT_KEY_EXCEPTION_MESSAGE)).isNull();
+    assertThat(deadLetter.headers().lastHeader(KafkaHeaders.DLT_KEY_EXCEPTION_STACKTRACE)).isNull();
   }
 }

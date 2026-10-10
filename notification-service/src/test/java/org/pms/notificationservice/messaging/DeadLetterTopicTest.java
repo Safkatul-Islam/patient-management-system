@@ -1,8 +1,8 @@
 package org.pms.notificationservice.messaging;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.awaitility.Awaitility.await;
 
-import java.nio.ByteBuffer;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -17,47 +17,52 @@ import org.springframework.kafka.core.KafkaAdmin;
 import org.springframework.kafka.support.KafkaHeaders;
 
 /**
- * The dead-letter topic as it really exists on the broker. Dead-lettered records keep their source
- * partition number, which only works when the dead-letter topic has at least as many partitions as
- * the source.
+ * The dead-letter topic as it really exists on the broker. Dead-lettered records are partitioned by
+ * their original key, not pinned to their source partition number.
  */
 class DeadLetterTopicTest extends AbstractPatientCreatedIntegrationTest {
-
-  private static final int LAST_SOURCE_PARTITION = 2;
 
   @Autowired private KafkaAdmin kafkaAdmin;
 
   @Test
-  @DisplayName("The dead-letter topic has at least as many partitions as patient.created")
-  void deadLetterTopicCoversEverySourcePartition() throws Exception {
+  @DisplayName("This service declares its dead-letter topic with the configured partitions")
+  void deadLetterTopicExistsAsDeclared() throws Exception {
     Map<String, TopicDescription> topics;
     try (AdminClient admin = AdminClient.create(kafkaAdmin.getConfigurationProperties())) {
       topics =
           admin
-              .describeTopics(List.of(properties.topic(), properties.deadLetterTopic()))
+              .describeTopics(List.of(properties.deadLetterTopic()))
               .allTopicNames()
               .get(10, TimeUnit.SECONDS);
     }
 
-    int source = topics.get(properties.topic()).partitions().size();
-    int deadLetter = topics.get(properties.deadLetterTopic()).partitions().size();
-    assertThat(source).isEqualTo(3);
-    assertThat(deadLetter).isGreaterThanOrEqualTo(source);
+    assertThat(topics.get(properties.deadLetterTopic()).partitions())
+        .hasSize(properties.deadLetterPartitions());
   }
 
   @Test
-  @DisplayName("A poison record from source partition 2 lands on dead-letter partition 2")
-  void deadLetterKeepsSourcePartition() {
-    String payload = "{not json " + UUID.randomUUID() + " " + PAYLOAD_MARKER;
+  @DisplayName("Same-key poison records from different source partitions share one DLT partition")
+  void deadLettersArePartitionedByKey() {
+    String key = "dlt-key-" + UUID.randomUUID();
+    String fromPartition0 = "{not json " + UUID.randomUUID() + " " + PAYLOAD_MARKER;
+    String fromPartition2 = "{not json " + UUID.randomUUID() + " " + PAYLOAD_MARKER;
+    double before = deadLetteredCount();
 
-    send(LAST_SOURCE_PARTITION, "partition-2-key", payload, "notif-dlt-p2");
+    send(0, key, fromPartition0, "notif-dlt-p0");
+    send(2, key, fromPartition2, "notif-dlt-p2");
 
-    ConsumerRecord<String, String> deadLetter = awaitDeadLetter(payload);
-    assertThat(deadLetter.partition()).isEqualTo(LAST_SOURCE_PARTITION);
-    byte[] originalPartition =
-        deadLetter.headers().lastHeader(KafkaHeaders.DLT_ORIGINAL_PARTITION).value();
-    assertThat(ByteBuffer.wrap(originalPartition).getInt()).isEqualTo(LAST_SOURCE_PARTITION);
-    assertThat(deadLetter.key()).isEqualTo("partition-2-key");
-    assertThat(header(deadLetter, "X-Correlation-Id")).isEqualTo("notif-dlt-p2");
+    ConsumerRecord<String, String> first = awaitDeadLetter(fromPartition0);
+    ConsumerRecord<String, String> second = awaitDeadLetter(fromPartition2);
+    assertThat(second.partition()).isEqualTo(first.partition());
+    assertThat(originalPartition(first)).isZero();
+    assertThat(originalPartition(second)).isEqualTo(2);
+    assertThat(first.key()).isEqualTo(key);
+    assertThat(second.key()).isEqualTo(key);
+    assertThat(header(first, "X-Correlation-Id")).isEqualTo("notif-dlt-p0");
+    assertThat(header(second, "X-Correlation-Id")).isEqualTo("notif-dlt-p2");
+    assertThat(header(second, KafkaHeaders.DLT_ORIGINAL_TOPIC)).isEqualTo(properties.topic());
+    assertThat(second.headers().lastHeader(KafkaHeaders.DLT_EXCEPTION_MESSAGE)).isNull();
+    assertThat(second.headers().lastHeader(KafkaHeaders.DLT_EXCEPTION_STACKTRACE)).isNull();
+    await().atMost(TIMEOUT).until(() -> deadLetteredCount() == before + 2);
   }
 }
