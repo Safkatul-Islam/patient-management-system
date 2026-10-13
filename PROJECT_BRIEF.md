@@ -14,7 +14,7 @@ Use these technologies unless a project decision explicitly changes them:
 | Java (user-approved installed LTS JDK baseline) | Long-term support, plus virtual threads |
 | Spring Boot | The framework the codebase already runs on; manages library versions through its BOM |
 | Spring Framework | Comes with Spring Boot |
-| Maven Wrapper, multi-module | The codebase, CI, Spotless and Dependabot already use Maven; one module per service under a root aggregator |
+| Maven, multi-module | The codebase, CI, Spotless and Dependabot already use Maven; one module per service under a root aggregator |
 | Spring Cloud Gateway | Single entry point, and the one place JWTs are validated, so downstream services don't each reimplement authentication |
 | Spring Security + Nimbus JOSE/JWT | Access and refresh tokens with role claims, using standard JWT handling instead of hand-rolled token logic |
 | PostgreSQL + Flyway | Database-per-service; Flyway keeps every schema change versioned and reviewable, never manual |
