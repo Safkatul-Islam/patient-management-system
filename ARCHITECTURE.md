@@ -48,11 +48,11 @@ Billing answer; otherwise use an event-driven interaction.
 |---|---|---|
 | API Gateway | Public entry point, routing, JWT verification, trusted identity propagation | [Implemented] |
 | Auth Service | Users, credentials, access/refresh tokens, JWKS | [Implemented] |
-| Patient Service | Patient records with role + self-scope authorization; lifecycle events | [Implemented] records/authorization; [Planned] lifecycle events |
+| Patient Service | Patient records with role + self-scope authorization; lifecycle events | [Implemented] records/authorization and the after-commit `patient.created` event |
 | Billing Service | Billing/eligibility concern; sync contract not final | [Decision pending] |
-| Notification Service | Independent event consumer for notifications | [Planned] |
-| Analytics Service | Minimal event-driven aggregation | [Planned] |
-| Kafka | Async fan-out between independent consumers | [Planned] |
+| Notification Service | Independent event consumer: records one welcome notification per patient | [Implemented] |
+| Analytics Service | Minimal event-driven aggregation: daily registration counts | [Implemented] |
+| Kafka | Async fan-out between independent consumers (Redpanda locally) | [Implemented] |
 
 Shared code may contain cross-cutting conventions, never another service's domain logic.
 
@@ -121,9 +121,13 @@ match the requested resource's `patientId`; role membership alone is insufficien
 
 ## Local Development Deployment
 
-**Target topology [Planned].** Today only PostgreSQL runs in Docker Compose. auth-service,
-patient-service and api-gateway run as local JVM processes bound to `127.0.0.1` (see `README.md`
-for the run sequence); Billing, Kafka/Redpanda, Notification and Analytics are not built yet.
+**Today [Implemented].** Docker Compose runs PostgreSQL (one server hosting each service's own
+database) and a single-node Redpanda broker, both published on `127.0.0.1` only, with Redpanda's
+automatic topic creation turned off. api-gateway, auth-service, patient-service,
+notification-service and analytics-service run as local JVM processes bound to `127.0.0.1` (see
+`README.md` for the run sequence). Billing is not built.
+
+**Target topology [Planned].** Every service runs as a container on the Compose network, as below.
 
 ```text
 ┌────────────────────────── Docker Compose Network ──────────────────────────┐
@@ -207,6 +211,11 @@ Deployment intent:
 5. **Idempotency retention** — retention policy for processed-event records.
 6. **Refresh-token retention** — retention/cleanup policy for expired and revoked refresh-token
    records.
+7. **Topic provisioning** — patient-service creates `patient.created` once, at startup, and does not
+   retry. If the broker is down at that moment, every publish fails (logged and counted) until the
+   service restarts or the topic is created by hand. Options: retry creation inside the service,
+   provision topics outside the services (an init job locally, Terraform for MSK), or keep the
+   manual recovery.
 
 Use an ADR later when a major decision needs durable rationale.
 
