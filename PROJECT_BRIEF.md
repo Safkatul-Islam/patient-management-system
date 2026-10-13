@@ -132,7 +132,7 @@ V1 should provide patient CRUD with Bean Validation, correct HTTP semantics, pag
 Patient creation is the source of `patient.created`.
 
 ## Kafka Event Contract
-Every event needs at minimum a stable `eventId`, event type/version, occurrence timestamp, aggregate/patient ID, required payload, and correlation/trace context.
+Every event needs at minimum a stable `eventId`, event type/version, occurrence timestamp, aggregate/patient ID, only the payload its consumers actually need, and correlation/trace context.
 Keep event contracts explicit and versionable. Notification and Analytics must not depend on Patient Service's database.
 
 `patient.created`, version 1:
@@ -152,6 +152,11 @@ Keep event contracts explicit and versionable. Notification and Analytics must n
 - **Ownership:** the producer owns the schema; each consumer keeps its own tolerant reader. The golden fixtures in `contracts/events/` are tested by the producer and by every consumer.
 - **Versioning:** adding an optional field keeps version 1 (consumers ignore unknown fields). A breaking change is a new `eventVersion`; a consumer that receives a version it does not support dead-letters the record instead of dropping it silently.
 - **Dead letters:** each consumer group has its own dead-letter topic, `patient.created.<consumer>.dlt`.
+- **Consumer failure policy** (both consumers): every failure is sorted into one of three buckets.
+  - *Invalid event* (not JSON, wrong type or version, missing or wrongly typed fields): dead-lettered on the first failure, never retried.
+  - *Own database unreachable* (Spring's `TransientDataAccessException`, `DataAccessResourceFailureException` or `CannotCreateTransactionException` anywhere in the cause chain): retried with exponential back-off, 1 s doubling to at most 30 s per pause, until the pauses add up to 15 minutes; then dead-lettered. An outage must not dead-letter valid events, so the partition waits instead.
+  - *Anything else*: retried twice, 1 s apart, then dead-lettered.
+  - A dead letter keeps the original key (so it is partitioned by key), the correlation header, the exception class names and the `kafka_dlt-original-*` headers; never the exception message or stack trace. Counters: `pms.events.dead_lettered` and, when publishing the dead letter itself fails, `pms.events.dead_letter.failures`; that record is then retried, never skipped.
 
 ## Billing and Resilience
 If Billing remains synchronous, decide failure semantics before implementation.
@@ -176,13 +181,13 @@ Important proof points:
 Agent-generated code is a draft until tricky transaction, idempotency, auth, and resilience paths are reviewed.
 
 ## Build Order
-### Phase 0 — Foundations
+### Phase 0 — Foundations [Complete]
 Maven multi-module structure, shared conventions, CI, Docker Compose, PostgreSQL/Redpanda development stack.
-### Phase 1 — Load-Bearing Core
+### Phase 1 — Load-Bearing Core [Complete]
 Auth Service, Patient Service, API Gateway, JWT/JWKS flow, authorization, migrations, integration tests. Do not move on until this path is solid.
-### Phase 2 — Event-Driven Flow
+### Phase 2 — Event-Driven Flow [Complete]
 After-commit Patient events, Notification consumer, Analytics consumer, independent groups, idempotency, duplicate-delivery tests.
-### Phase 3 — gRPC / Billing
+### Phase 3 — gRPC / Billing [Next: synchronous-need decision pending]
 Confirm synchronous justification first. Then define `.proto`, implement Billing and Patient client, add Resilience4j, and test outages.
 ### Phase 4 — AWS / Terraform
 Terraform for ALB -> ECS Fargate -> RDS/MSK. Use AWS-supported engine versions, `LATEST` Fargate platform where appropriate, and an approved secrets solution.
@@ -211,6 +216,12 @@ V1 deliberately does not include:
 - a Kafka schema registry / Avro: events are JSON with explicit, versioned contracts
 - ordering across event types: each event type has its own topic, keyed by `patientId`, so order is guaranteed only per patient within one event type; a future event type for the same patient (e.g. `patient.updated`) has no ordering guarantee relative to `patient.created`
 After-commit publishing reduces one dual-write failure mode but does not guarantee eventual publication after a post-commit broker failure. Document this honestly.
+
+Accepted limitations of the V1 event flow:
+- **In-memory publish queue:** after commit, `patient.created` is handed to a single-thread sender with a bounded in-memory queue (1000). A failed send, a full queue or a shutdown is logged (IDs only) and counted in `pms.events.publish.failures`, and that event is lost. A clean shutdown drains the queue for up to 15 s; events still queued when the process crashes are lost without being counted. A transactional outbox would close this gap.
+- **A consumer blocks its partition while its database is down:** the failing record is retried with back-off and later records on that partition wait (other partitions and the other consumer group carry on). After 15 minutes of pauses the record is dead-lettered and the next one starts waiting, so a permanent outage (for example a rotated database password) drains the backlog into the dead-letter topic at about one record per 15 minutes. Recovery is fixing the database and replaying the dead letters.
+- **A retry bound can restart:** Spring Kafka resets a record's retry state whenever its exception class changes between attempts, so a record whose failure keeps alternating between classes is retried indefinitely and blocks its partition. Turning the reset off was tested and rejected: it pins the bucket to the first failure, so an outage whose first symptom is an unclassified error would dead-letter valid events after three attempts.
+- **Duplicate dead letters:** a crash between publishing a dead letter and committing the source offset dead-letters the same record again on restart. Dead-letter readers deduplicate by `eventId` or by the `kafka_dlt-original-*` headers.
 
 ## If Time Runs Short
 Cut in this order:
