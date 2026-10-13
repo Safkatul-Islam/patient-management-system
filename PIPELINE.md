@@ -58,13 +58,14 @@ API Response / RFC 7807 error
 
 For role `PATIENT`, the requested resource must match the verified `patientId`.
 
-## 3. Patient Creation [Planned]
+## 3. Patient Creation [Implemented]
 
 1. Patient Service validates and authorizes the request.
 2. It writes inside a DB transaction.
 3. The transaction commits.
-4. Only after commit, `patient.created` is published.
-5. Downstream consumers do not block the HTTP response.
+4. Only after commit, the event is handed to a bounded in-process sender (a single worker thread),
+   which publishes `patient.created` with the request's correlation ID.
+5. Neither the broker nor the downstream consumers block the HTTP response.
 
 ```text
 Authorized request
@@ -81,7 +82,7 @@ Patient Service ──► Patient DB transaction
 
 A rolled-back transaction must never publish the event.
 
-## 4. Kafka Fan-Out [Planned]
+## 4. Kafka Fan-Out [Implemented]
 
 ```text
                     patient.created
@@ -99,7 +100,10 @@ A rolled-back transaction must never publish the event.
     notification action          update aggregates
 ```
 
-Both consumer groups operate independently; one failing consumer must not block the other.
+Both consumer groups operate independently; one failing consumer must not block the other. Each
+records the `eventId` and applies its effect in one transaction, so a redelivered event is skipped.
+A record that keeps failing is retried, then sent to the group's own dead-letter topic (the retry
+policy is in the Kafka Event Contract in `PROJECT_BRIEF.md`).
 
 Minimum event metadata:
 
@@ -107,8 +111,8 @@ Minimum event metadata:
 - event type/version
 - patient ID
 - occurrence timestamp
-- required payload
-- correlation/trace context
+- no personal data: `patient.created` carries IDs only
+- correlation/trace context (the `X-Correlation-Id` record header)
 
 ## 5. Billing Interaction [Decision pending]
 
@@ -167,10 +171,11 @@ Logout revokes the relevant refresh-token state.
 | Notification consumer fails | Analytics continues independently |
 | Analytics consumer fails | Notification continues independently |
 | Billing times out | Explicit circuit-breaker/fallback behavior |
-| Kafka publish fails after DB commit | Failure is visible; V1 may lose that event |
+| Kafka publish fails after DB commit | The request has already returned 201: the event was handed to the in-process sender. A failed send, a full queue or a shutdown is logged (IDs only) and counted, and that event is lost |
 
-The last case is a known consequence of after-commit publishing. A transactional outbox is future
-work if stronger publication guarantees become necessary.
+The last case is a known consequence of after-commit publishing with an in-memory handoff: an event
+still queued when the process crashes is lost without being counted. A transactional outbox is
+future work if stronger publication guarantees become necessary.
 
 ## Pipeline Invariants
 
