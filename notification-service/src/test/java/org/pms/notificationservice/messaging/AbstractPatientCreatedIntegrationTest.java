@@ -43,12 +43,15 @@ import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
  * one pair of containers. Tests use fresh event and patient IDs and never assume empty tables.
  *
  * <p>Short Hikari timeouts make an unreachable database fail fast (1 s) instead of after the 30 s
- * default, so the outage test sees several attempts within seconds.
+ * default, so the outage test sees several attempts within seconds. The short socket timeout covers
+ * a pooled connection that skips validation (used within the last 500 ms): its statement then fails
+ * after 3 s instead of hanging on the paused server.
  */
 @SpringBootTest(
     properties = {
       "spring.datasource.hikari.connection-timeout=1000",
-      "spring.datasource.hikari.validation-timeout=500"
+      "spring.datasource.hikari.validation-timeout=500",
+      "spring.datasource.hikari.data-source-properties[socketTimeout]=3"
     })
 @Import(ContainersTestConfig.class)
 @ExtendWith(OutputCaptureExtension.class)
