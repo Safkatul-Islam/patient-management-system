@@ -31,7 +31,6 @@ out/
 *.zip
 *.tar.gz
 *.rar
-!**/.mvn/wrapper/maven-wrapper.jar
 
 # ---------- Logs ----------
 *.log
