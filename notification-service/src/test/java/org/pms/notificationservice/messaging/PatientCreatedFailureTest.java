@@ -10,6 +10,7 @@ import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 
 import java.util.UUID;
+import java.util.concurrent.atomic.AtomicInteger;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -94,6 +95,39 @@ class PatientCreatedFailureTest extends AbstractPatientCreatedIntegrationTest {
     send(patientId.toString(), event(laterEventId, patientId), "notif-fail-2");
     await().atMost(TIMEOUT).until(() -> notificationsFor(laterEventId) == 1);
     assertThat(processedEventsFor(laterEventId)).isEqualTo(1);
+  }
+
+  @Test
+  @DisplayName(
+      "An effect that fails after the dedupe marker is written rolls both back; the redelivery"
+          + " applies it once")
+  void failedEffectRollsBackMarkerAndRedeliveryAppliesIt() {
+    UUID eventId = UUID.randomUUID();
+    UUID patientId = UUID.randomUUID();
+    AtomicInteger attempts = new AtomicInteger();
+    // The processor writes the marker first, then calls the recorder in the same transaction, so
+    // this failure happens after the marker insert.
+    doAnswer(
+            invocation -> {
+              PatientCreatedEvent event = invocation.getArgument(0);
+              if (event.eventId().equals(eventId) && attempts.incrementAndGet() == 1) {
+                throw new IllegalStateException("Simulated failure after the marker insert");
+              }
+              return invocation.callRealMethod();
+            })
+        .when(recorder)
+        .record(any());
+    String payload = event(eventId, patientId);
+
+    send(patientId.toString(), payload, "notif-redeliver-1");
+
+    await().atMost(TIMEOUT).until(() -> notificationsFor(eventId) == 1);
+    // Called twice: had attempt 1's marker survived, the redelivery would have been skipped as a
+    // duplicate and the effect would never have been applied.
+    verify(recorder, times(2)).record(argThat(event -> event.eventId().equals(eventId)));
+    assertThat(processedEventsFor(eventId)).isEqualTo(1);
+    assertThat(notificationsFor(eventId)).isEqualTo(1);
+    assertThat(deadLettersWithValue(payload)).isEmpty();
   }
 
   @Test

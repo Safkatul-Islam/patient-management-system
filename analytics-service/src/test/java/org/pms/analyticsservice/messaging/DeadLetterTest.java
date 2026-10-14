@@ -95,6 +95,33 @@ class DeadLetterTest extends AbstractConsumerIntegrationTest {
   }
 
   @Test
+  @DisplayName(
+      "An effect that fails after the dedupe marker is written rolls both back; the redelivery"
+          + " applies it once")
+  void failedEffectRollsBackMarkerAndRedeliveryAppliesIt() throws Exception {
+    UUID eventId = UUID.randomUUID();
+    LocalDate day = unusedDay();
+    String event = payload(eventId, noonOf(day));
+    // The handler writes the marker first, then records the registration in the same
+    // transaction, so this failure happens after the marker insert.
+    doThrow(new IllegalStateException("Simulated failure after the marker insert"))
+        .doCallRealMethod()
+        .when(dailyRegistrations)
+        .record(argThat(recorded -> eventId.equals(recorded.eventId())));
+
+    send(null, UUID.randomUUID().toString(), event, "anlt-redeliver-1");
+
+    awaitProcessed(eventId);
+    await().atMost(TIMEOUT).until(() -> registrationsOn(day) == 1);
+    // Called twice: had attempt 1's marker survived, the redelivery would have been skipped as a
+    // duplicate and the registration would never have been counted.
+    verify(dailyRegistrations, times(2))
+        .record(argThat(recorded -> eventId.equals(recorded.eventId())));
+    assertThat(registrationsOn(day)).isEqualTo(1);
+    assertThat(deadLettersWithValue(event)).isEmpty();
+  }
+
+  @Test
   @DisplayName("Malformed JSON and an unsupported version are dead-lettered without retries")
   void poisonRecordsNotRetried(CapturedOutput output) throws Exception {
     String malformed = "{\"eventId\": \"not closed " + UUID.randomUUID();
