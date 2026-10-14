@@ -1,6 +1,8 @@
 package org.pms.analyticsservice.messaging;
 
+import java.net.SocketTimeoutException;
 import java.nio.charset.StandardCharsets;
+import java.sql.SQLException;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.apache.kafka.common.header.Header;
 import org.pms.common.web.correlation.CorrelationIds;
@@ -19,21 +21,31 @@ final class ListenerFailures {
   private ListenerFailures() {}
 
   /**
-   * True when the database could not be reached or reported a transient condition (Spring's
-   * data-access hierarchy anywhere in the cause chain). Such a failure says nothing about the
-   * record, so it must not be dead-lettered after a few quick attempts.
+   * True when the database could not be reached or reported a transient condition anywhere in the
+   * cause chain: Spring's data-access hierarchy, a socket read that timed out, or a JDBC error in
+   * SQLState class 08 (connection exception). Such a failure says nothing about the record, so it
+   * must not be dead-lettered after a few quick attempts.
    */
   static boolean isConnectivityFailure(Throwable failure) {
     Throwable current = failure;
     for (int depth = 0; current != null && depth < MAX_CAUSE_DEPTH; depth++) {
       if (current instanceof TransientDataAccessException
           || current instanceof DataAccessResourceFailureException
-          || current instanceof CannotCreateTransactionException) {
+          || current instanceof CannotCreateTransactionException
+          || current instanceof SocketTimeoutException
+          || isConnectionExceptionState(current)) {
         return true;
       }
       current = current.getCause();
     }
     return false;
+  }
+
+  /** SQLState class 08 is "connection exception" in the SQL standard (e.g. 08006, 08001). */
+  private static boolean isConnectionExceptionState(Throwable failure) {
+    return failure instanceof SQLException sql
+        && sql.getSQLState() != null
+        && sql.getSQLState().startsWith("08");
   }
 
   /** The listener's own exception, not the container's wrapper around it. */
