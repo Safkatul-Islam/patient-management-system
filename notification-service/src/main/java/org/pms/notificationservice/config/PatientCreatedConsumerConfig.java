@@ -13,6 +13,7 @@ import org.springframework.boot.context.properties.EnableConfigurationProperties
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.kafka.config.TopicBuilder;
+import org.springframework.kafka.core.ConsumerFactory;
 import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.kafka.listener.DefaultErrorHandler;
 import org.springframework.util.backoff.BackOff;
@@ -73,7 +74,13 @@ public class PatientCreatedConsumerConfig {
   @Bean
   DefaultErrorHandler patientCreatedErrorHandler(
       ObservedDeadLetterPublishingRecoverer recoverer,
-      PatientCreatedConsumerProperties properties) {
+      PatientCreatedConsumerProperties properties,
+      ConsumerFactory<?, ?> consumerFactory) {
+    // The consumer thread sleeps through each pause, so the longest one must fit the poll window.
+    properties
+        .connectivityRetry()
+        .requireWithinPollInterval(
+            MaxPollInterval.of(consumerFactory.getConfigurationProperties()));
     BackOff other =
         new FixedBackOff(properties.retryInterval().toMillis(), properties.maxRetries());
     DefaultErrorHandler errorHandler = new DefaultErrorHandler(recoverer, other);

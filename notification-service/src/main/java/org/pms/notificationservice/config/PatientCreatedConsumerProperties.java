@@ -32,7 +32,7 @@ public record PatientCreatedConsumerProperties(
     if (deadLetterPartitions < 1) {
       throw new IllegalArgumentException("dead-letter-partitions must be at least 1");
     }
-    requireNotNegative(retryInterval, "retry-interval");
+    requirePositive(retryInterval, "retry-interval");
     if (maxRetries < 0) {
       throw new IllegalArgumentException("max-retries must not be negative");
     }
@@ -46,25 +46,38 @@ public record PatientCreatedConsumerProperties(
    * @param initialInterval pause after the first failed attempt
    * @param multiplier growth of the pause per attempt
    * @param maxInterval longest single pause; the consumer thread sleeps through it between polls,
-   *     so it must stay far below the consumer's {@code max.poll.interval.ms} (5 minutes by
-   *     default)
+   *     so it must stay at most half the consumer's effective {@code max.poll.interval.ms}, checked
+   *     at startup by {@link #requireWithinPollInterval}
    * @param maxElapsedTime total pause time after which the record is dead-lettered
    */
   public record ConnectivityRetry(
       Duration initialInterval, double multiplier, Duration maxInterval, Duration maxElapsedTime) {
 
-    private static final Duration MAX_POLL_INTERVAL_DEFAULT = Duration.ofMinutes(5);
-
     public ConnectivityRetry {
-      requireNotNegative(initialInterval, "connectivity-retry.initial-interval");
-      requireNotNegative(maxInterval, "connectivity-retry.max-interval");
-      requireNotNegative(maxElapsedTime, "connectivity-retry.max-elapsed-time");
+      requirePositive(initialInterval, "connectivity-retry.initial-interval");
+      requirePositive(maxElapsedTime, "connectivity-retry.max-elapsed-time");
+      Objects.requireNonNull(maxInterval, "connectivity-retry.max-interval is required");
+      if (maxInterval.compareTo(initialInterval) < 0) {
+        throw new IllegalArgumentException(
+            "connectivity-retry.max-interval must not be below initial-interval");
+      }
       if (multiplier < 1) {
         throw new IllegalArgumentException("connectivity-retry.multiplier must be at least 1");
       }
-      if (maxInterval.compareTo(MAX_POLL_INTERVAL_DEFAULT.dividedBy(2)) > 0) {
-        throw new IllegalArgumentException(
-            "connectivity-retry.max-interval must stay well below max.poll.interval.ms");
+    }
+
+    /**
+     * Fails unless the longest pause is at most half the consumer's {@code max.poll.interval.ms}:
+     * the consumer thread sleeps through a pause, and must poll again before the broker evicts it.
+     */
+    public void requireWithinPollInterval(Duration maxPollInterval) {
+      if (maxInterval.compareTo(maxPollInterval.dividedBy(2)) > 0) {
+        throw new IllegalStateException(
+            "connectivity-retry.max-interval ("
+                + maxInterval
+                + ") must be at most half of max.poll.interval.ms ("
+                + maxPollInterval
+                + ")");
       }
     }
   }
@@ -75,10 +88,10 @@ public record PatientCreatedConsumerProperties(
     }
   }
 
-  private static void requireNotNegative(Duration value, String name) {
+  private static void requirePositive(Duration value, String name) {
     Objects.requireNonNull(value, name + " is required");
-    if (value.isNegative()) {
-      throw new IllegalArgumentException(name + " must not be negative");
+    if (value.isZero() || value.isNegative()) {
+      throw new IllegalArgumentException(name + " must be positive");
     }
   }
 }
