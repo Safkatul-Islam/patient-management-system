@@ -8,9 +8,11 @@ import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 
 import com.github.dockerjava.api.DockerClient;
+import com.zaxxer.hikari.HikariDataSource;
 import java.time.Duration;
 import java.util.List;
 import java.util.UUID;
+import javax.sql.DataSource;
 import org.apache.kafka.clients.producer.RecordMetadata;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -32,10 +34,11 @@ class DatabaseOutageTest extends AbstractPatientCreatedIntegrationTest {
   private static final Duration RECOVERY_TIMEOUT = Duration.ofSeconds(60);
 
   @Autowired private PostgreSQLContainer postgres;
+  @Autowired private DataSource dataSource;
 
   @Test
   @DisplayName("A paused database is waited out: no dead letter, one effect after it returns")
-  void pausedDatabaseIsWaitedOut(CapturedOutput output) {
+  void pausedDatabaseIsWaitedOut(CapturedOutput output) throws Exception {
     UUID eventId = UUID.randomUUID();
     UUID patientId = UUID.randomUUID();
     String payload = event(eventId, patientId);
@@ -45,6 +48,10 @@ class DatabaseOutageTest extends AbstractPatientCreatedIntegrationTest {
     docker.pauseContainerCmd(postgres.getContainerId()).exec();
     String coordinates;
     try {
+      // No pooled connection survives into the outage: every attempt has to connect. Evicting after
+      // the pause matters: evicted before it, the pool could refill with fresh connections that
+      // skip validation for 500 ms, and a statement on one would hang on the paused server.
+      dataSource.unwrap(HikariDataSource.class).getHikariPoolMXBean().softEvictConnections();
       RecordMetadata sent = send(patientId.toString(), payload, "notif-outage-1");
       coordinates = sent.topic() + "-" + sent.partition() + "@" + sent.offset();
 
