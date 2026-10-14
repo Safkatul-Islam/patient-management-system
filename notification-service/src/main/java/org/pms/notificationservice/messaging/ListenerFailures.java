@@ -20,11 +20,25 @@ final class ListenerFailures {
    * class is reported, never the message, which could quote payload or row values.
    */
   static String typeOf(Exception exception) {
-    Throwable failure = exception;
-    if (failure instanceof ListenerExecutionFailedException && failure.getCause() != null) {
-      failure = failure.getCause();
+    return listenerFailure(exception).getClass().getName();
+  }
+
+  /**
+   * The class of the innermost cause of the listener's exception, found within the bounded walk.
+   * Only the class is reported, never the message.
+   */
+  static String rootCauseTypeOf(Exception exception) {
+    Throwable current = listenerFailure(exception);
+    for (int depth = 0; current.getCause() != null && depth < MAX_CAUSE_DEPTH; depth++) {
+      current = current.getCause();
     }
-    return failure.getClass().getName();
+    return current.getClass().getName();
+  }
+
+  private static Throwable listenerFailure(Exception exception) {
+    return exception instanceof ListenerExecutionFailedException && exception.getCause() != null
+        ? exception.getCause()
+        : exception;
   }
 
   /**

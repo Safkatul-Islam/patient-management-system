@@ -7,8 +7,8 @@ import org.springframework.kafka.listener.RetryListener;
 
 /**
  * One WARN line per failed delivery attempt, so retries (including a long wait for the database)
- * are visible before a record is either processed or dead-lettered. Coordinates, attempt number and
- * exception class only: never the payload or the exception message.
+ * are visible before a record is either processed or dead-lettered. Coordinates, attempt number,
+ * the exception class and its root cause's class only: never the payload or any exception message.
  */
 public class FailedAttemptLogger implements RetryListener {
 
@@ -18,11 +18,12 @@ public class FailedAttemptLogger implements RetryListener {
   public void failedDelivery(
       ConsumerRecord<?, ?> record, Exception exception, int deliveryAttempt) {
     log.warn(
-        "Attempt {} failed for record {}-{}@{} with {}",
+        "Attempt {} failed for record {}-{}@{} with {} rootCauseType={}",
         deliveryAttempt,
         record.topic(),
         record.partition(),
         record.offset(),
-        ListenerFailures.typeOf(exception));
+        ListenerFailures.typeOf(exception),
+        ListenerFailures.rootCauseTypeOf(exception));
   }
 }

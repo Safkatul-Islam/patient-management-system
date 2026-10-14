@@ -57,7 +57,7 @@ class PatientCreatedFailureTest extends AbstractPatientCreatedIntegrationTest {
     assertThat(header(deadLetter, "X-Correlation-Id")).isEqualTo("notif-fail-1");
     assertNoExceptionText(deadLetter);
 
-    // One WARN per failed attempt, the last one included; class only, no message.
+    // One WARN per failed attempt, the last one included; class names only, no message.
     String coordinates = sourceCoordinates(deadLetter);
     await()
         .atMost(TIMEOUT)
@@ -68,7 +68,9 @@ class PatientCreatedFailureTest extends AbstractPatientCreatedIntegrationTest {
           .singleElement()
           .asString()
           .contains("\"level\":\"WARN\"")
-          .contains("with java.lang.IllegalStateException\"")
+          .contains(
+              "with java.lang.IllegalStateException"
+                  + " rootCauseType=java.lang.IllegalStateException\"")
           .doesNotContain("Simulated notification store failure");
     }
 

@@ -87,6 +87,29 @@ class ListenerFailuresTest {
         () -> assertThat(ListenerFailures.isConnectivityFailure(first)).isFalse());
   }
 
+  @Test
+  @DisplayName("The root cause is named past the container's wrapper and JPA's, by class only")
+  void rootCauseType() {
+    assertThat(
+            ListenerFailures.rootCauseTypeOf(
+                wrapped(jpaFailure(new SocketTimeoutException("Read timed out")))))
+        .isEqualTo(SocketTimeoutException.class.getName());
+    assertThat(ListenerFailures.rootCauseTypeOf(wrapped(new IllegalStateException("x"))))
+        .isEqualTo(IllegalStateException.class.getName());
+  }
+
+  @Test
+  @DisplayName("Naming the root cause of a cause cycle terminates")
+  void rootCauseOfCycle() {
+    IllegalStateException first = new IllegalStateException("first");
+    IllegalArgumentException second = new IllegalArgumentException("second", first);
+    first.initCause(second);
+
+    assertTimeoutPreemptively(
+        Duration.ofSeconds(2),
+        () -> assertThat(ListenerFailures.rootCauseTypeOf(first)).isNotNull());
+  }
+
   private static ListenerExecutionFailedException wrapped(Exception cause) {
     return new ListenerExecutionFailedException("Listener failed", cause);
   }
