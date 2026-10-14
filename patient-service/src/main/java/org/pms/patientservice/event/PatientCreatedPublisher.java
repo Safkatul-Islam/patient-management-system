@@ -7,6 +7,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.RejectedExecutionException;
+import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Function;
@@ -50,6 +51,9 @@ public class PatientCreatedPublisher implements DisposableBean {
   static final String QUEUE_FULL = "queue_full";
   static final String SHUTDOWN = "shutdown";
 
+  // Bounds the root-cause walk in case an exception's causes form a cycle.
+  private static final int MAX_CAUSE_DEPTH = 32;
+
   private final KafkaTemplate<String, String> kafkaTemplate;
   private final JsonMapper jsonMapper;
   private final String topic;
@@ -81,8 +85,27 @@ public class PatientCreatedPublisher implements DisposableBean {
             0L,
             TimeUnit.MILLISECONDS,
             new ArrayBlockingQueue<>(publisherProperties.queueCapacity()),
-            Thread.ofPlatform().name("patient-events-sender").factory(),
+            senderThreads(),
             new ThreadPoolExecutor.AbortPolicy());
+  }
+
+  /**
+   * Daemon on purpose: Spring owns the sender's lifecycle, and {@link #destroy()} drains and stops
+   * it on every clean shutdown. A non-daemon thread would save no events (an exit that skips the
+   * context close skips the drain too) but could keep alive a JVM whose context never closed. The
+   * flag is set explicitly because a thread otherwise inherits it from whichever thread creates it,
+   * here the first request thread to publish. Request-thread inheritable thread-locals stay behind.
+   */
+  private static ThreadFactory senderThreads() {
+    return Thread.ofPlatform()
+        .name("patient-events-sender")
+        .daemon(true)
+        .inheritInheritableThreadLocals(false)
+        .uncaughtExceptionHandler(
+            (thread, failure) ->
+                // The failure was already logged and counted; never print its message here.
+                log.error("Event sender thread ended by {}", failure.getClass().getName()))
+        .factory();
   }
 
   /**
@@ -113,10 +136,9 @@ public class PatientCreatedPublisher implements DisposableBean {
     } catch (InterruptedException interrupted) {
       Thread.currentThread().interrupt();
     }
+    // Only SendTasks are ever queued.
     for (Runnable unsent : sender.shutdownNow()) {
-      if (unsent instanceof SendTask task) {
-        recordFailure(task.event(), SHUTDOWN, null);
-      }
+      recordFailure(((SendTask) unsent).event(), SHUTDOWN, null);
     }
   }
 
@@ -141,6 +163,11 @@ public class PatientCreatedPublisher implements DisposableBean {
     } catch (Exception failure) {
       // Building the record or send() itself threw. Never rethrown: it would only end the task.
       recordFailure(event, SEND_FAILED, failure);
+    } catch (Error error) {
+      // Counted like any lost event, then rethrown: an Error is not ours to swallow. It ends this
+      // worker; the executor starts a fresh one for the next event.
+      recordFailure(event, SEND_FAILED, error);
+      throw error;
     }
   }
 
@@ -195,7 +222,7 @@ public class PatientCreatedPublisher implements DisposableBean {
 
   private static Throwable rootCause(Throwable failure) {
     Throwable cause = failure;
-    while (cause.getCause() != null && cause.getCause() != cause) {
+    for (int depth = 0; cause.getCause() != null && depth < MAX_CAUSE_DEPTH; depth++) {
       cause = cause.getCause();
     }
     return cause;

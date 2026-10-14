@@ -9,6 +9,9 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
+import jakarta.validation.Validation;
+import jakarta.validation.Validator;
+import jakarta.validation.ValidatorFactory;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.time.Instant;
@@ -21,6 +24,7 @@ import org.apache.kafka.clients.producer.ProducerRecord;
 import org.apache.kafka.common.KafkaException;
 import org.apache.kafka.common.errors.TimeoutException;
 import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
@@ -96,6 +100,81 @@ class PatientCreatedPublisherTest {
     assertThat(payload.get("eventVersion").intValue()).isEqualTo(1);
     assertThat(payload.get("occurredAt").stringValue()).isEqualTo("2026-10-07T12:34:56.789Z");
     assertThat(payload.get("patientId").stringValue()).isEqualTo(event.patientId().toString());
+  }
+
+  @Test
+  @DisplayName(
+      "The sender is a named daemon thread: Spring's shutdown drains it, it never holds the JVM")
+  void senderThreadIsANamedDaemon() {
+    AtomicReference<Thread> sendingThread = new AtomicReference<>();
+    when(kafkaTemplate.send(any(ProducerRecord.class)))
+        .thenAnswer(
+            invocation -> {
+              sendingThread.set(Thread.currentThread());
+              return new CompletableFuture<>();
+            });
+    publisher = newPublisher(10, WAIT);
+
+    publisher.onPatientCreated(event);
+    sentRecord();
+
+    assertThat(sendingThread.get().getName()).isEqualTo("patient-events-sender");
+    assertThat(sendingThread.get().isDaemon()).isTrue();
+  }
+
+  @Test
+  @DisplayName(
+      "An Error from send() is counted and logged by class name, then rethrown; the next event is sent")
+  void errorFromSendIsCountedLoggedAndRethrown(CapturedOutput output) {
+    PatientCreated next = newEvent();
+    when(kafkaTemplate.send(any(ProducerRecord.class)))
+        .thenThrow(new LinkageError(SECRET_DETAIL))
+        .thenReturn(CompletableFuture.completedFuture(new SendResult<>(null, null)));
+    publisher = newPublisher(10, WAIT);
+
+    publisher.onPatientCreated(event);
+    await().atMost(WAIT).until(() -> failures(PatientCreatedPublisher.SEND_FAILED) == 1);
+    publisher.onPatientCreated(next);
+
+    verify(kafkaTemplate, timeout(WAIT.toMillis()).times(2)).send(any(ProducerRecord.class));
+    assertThat(totalFailures()).isEqualTo(1);
+    assertFailureLogged(output, event, "send_failed", LinkageError.class);
+    await().atMost(WAIT).until(() -> output.getAll().contains("Event sender thread ended by"));
+    assertThat(output.getAll()).doesNotContain(SECRET_DETAIL);
+  }
+
+  @Test
+  @DisplayName(
+      "A send failure whose causes form a cycle is still counted: the root-cause walk is bounded")
+  void causeCycleIsCounted(CapturedOutput output) {
+    IllegalStateException first = new IllegalStateException("first");
+    IllegalArgumentException second = new IllegalArgumentException("second", first);
+    first.initCause(second);
+    when(kafkaTemplate.send(any(ProducerRecord.class)))
+        .thenThrow(new KafkaException(SECRET_DETAIL, first));
+    publisher = newPublisher(10, WAIT);
+
+    publisher.onPatientCreated(event);
+
+    await().atMost(WAIT).until(() -> failures(PatientCreatedPublisher.SEND_FAILED) == 1);
+    assertFailureLogged(output, event, "send_failed", KafkaException.class);
+  }
+
+  @Test
+  @DisplayName("A drain timeout below 1 s is rejected; 1 s is accepted")
+  void drainTimeoutHasAMinimum() {
+    try (ValidatorFactory factory = Validation.buildDefaultValidatorFactory()) {
+      Validator validator = factory.getValidator();
+
+      assertThat(validator.validate(new PatientEventPublisherProperties(10, Duration.ZERO)))
+          .extracting(violation -> violation.getPropertyPath().toString())
+          .containsExactly("drainTimeout");
+      assertThat(
+              validator.validate(new PatientEventPublisherProperties(10, Duration.ofMillis(999))))
+          .hasSize(1);
+      assertThat(validator.validate(new PatientEventPublisherProperties(10, Duration.ofSeconds(1))))
+          .isEmpty();
+    }
   }
 
   @Test
