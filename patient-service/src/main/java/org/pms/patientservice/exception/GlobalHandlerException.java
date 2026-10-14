@@ -66,12 +66,26 @@ public class GlobalHandlerException extends ProblemDetailsExceptionHandler {
    * Concurrent creates or updates can all pass the service's email pre-check; the database unique
    * constraint then rejects all but one. Only that constraint means "email already in use"; any
    * other integrity violation is a bug and stays a generic 500.
+   *
+   * <p>Such a violation's message can quote the failing row, which is patient data, so it is never
+   * handed to the catch-all (that logs the full message and stack trace): only the exception class
+   * and the constraint name are logged.
    */
   @ExceptionHandler(DataIntegrityViolationException.class)
   public ResponseEntity<Object> handleDataIntegrityViolation(
       DataIntegrityViolationException ex, WebRequest request) {
-    if (!EMAIL_UNIQUE_CONSTRAINT.equals(violatedConstraintName(ex))) {
-      return handleUnexpected(ex, request);
+    String constraint = violatedConstraintName(ex);
+    if (!EMAIL_UNIQUE_CONSTRAINT.equals(constraint)) {
+      log.error(
+          "Unexpected integrity violation type={} constraint={}",
+          ex.getClass().getName(),
+          constraint == null ? "unknown" : constraint);
+      return respond(
+          ex,
+          HttpStatus.INTERNAL_SERVER_ERROR,
+          "Internal server error",
+          "An unexpected error occurred.",
+          request);
     }
     log.warn("Rejected patient write: email already in use (unique constraint)");
     return respond(
