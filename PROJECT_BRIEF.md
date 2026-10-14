@@ -209,7 +209,7 @@ V1 deliberately does not include:
 - CORS and rate limiting at the API gateway
 - soft delete / archival of patient records: V1 hard-deletes on `DELETE`; a real system would soft-delete or archive for audit purposes
 - network-enforced gateway trust locally: services bind to loopback only, but anything on the developer machine can call them directly and bypass the gateway (including forging `X-User-*` headers); real enforcement is AWS network isolation
-- PII risk from non-database exceptions in the `common` module's catch-all logger: it logs the full exception message and stack trace server-side. Accepted for V1 — not a live leak (database error detail is already suppressed via `logServerErrorDetail=false`), and exception messages that could carry PII are prevented going forward by the security rules.
+- PII risk from the `common` module's catch-all logger: it logs the full exception message and stack trace server-side. Non-email integrity violations no longer reach it: patient-service's handler scrubs them at the source and logs only the exception class and constraint name, since such a message can quote the failing row. Full-message logging for other unexpected exception types remains accepted for V1 — not a live leak (database error detail is already suppressed via `logServerErrorDetail=false`), and exception messages that could carry PII are prevented going forward by the security rules.
 - service discovery (Eureka or similar): service URLs are static configuration for a small, fixed set of services
 - Kubernetes: ECS Fargate is the deployment target
 - multi-region deployment or autoscaling tuning
