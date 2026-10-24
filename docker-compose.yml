@@ -31,7 +31,7 @@ services:
   # Kafka-API-compatible broker for local development: a single node in dev-container mode.
   # Services on the host connect to 127.0.0.1:19092; the internal listener is for containers.
   redpanda:
-    image: redpandadata/redpanda:v26.2.2
+    image: redpandadata/redpanda:v26.2.5
     container_name: pms-redpanda
     command:
       - redpanda
